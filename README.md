@@ -178,12 +178,14 @@ Add to your Claude Code MCP settings (`~/.claude/settings.json`):
 {
   "mcpServers": {
     "sugarlearning": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/sugarlearning-mcp", "sl", "mcp"]
+      "command": "sl",
+      "args": ["mcp"]
     }
   }
 }
 ```
+
+> **Note:** This requires the global install (`uv tool install .`). If using `uv run` instead, use `"command": "uv", "args": ["run", "--directory", "/path/to/sugarlearning-mcp", "sl", "mcp"]`.
 
 Then ask Claude things like:
 - "What modules are available in SugarLearning?"
@@ -200,8 +202,8 @@ Add to your VS Code settings (`.vscode/settings.json` or user settings):
   "mcp": {
     "servers": {
       "sugarlearning": {
-        "command": "uv",
-        "args": ["run", "--directory", "/path/to/sugarlearning-mcp", "sl", "mcp"]
+        "command": "sl",
+        "args": ["mcp"]
       }
     }
   }
@@ -216,8 +218,8 @@ Codex supports MCP servers via its config. Add to your Codex config:
 {
   "mcpServers": {
     "sugarlearning": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/sugarlearning-mcp", "sl", "mcp"]
+      "command": "sl",
+      "args": ["mcp"]
     }
   }
 }
@@ -228,8 +230,8 @@ Codex supports MCP servers via its config. Add to your Codex config:
 LM Studio supports MCP servers in its agent mode. Configure a new MCP server:
 
 - **Name**: SugarLearning
-- **Command**: `uv`
-- **Arguments**: `run --directory /path/to/sugarlearning-mcp sl mcp`
+- **Command**: `sl`
+- **Arguments**: `mcp`
 - **Transport**: stdio
 
 ## Qdrant Vector Search (Optional)
