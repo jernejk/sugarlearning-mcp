@@ -98,7 +98,8 @@ def diff():
 @click.argument("module_id", type=int)
 @click.option("--limit", "-l", type=int, default=0, help="Limit number of users shown (0 = all)")
 @click.option("--skip", "-s", type=int, default=0, help="Skip first N users")
-def watch(module_id: int, limit: int, skip: int):
+@click.option("--quiet", "-q", is_flag=True, help="Only output if changes detected (useful for cron/scripts)")
+def watch(module_id: int, limit: int, skip: int, quiet: bool):
     """Watch a module for changes. Fetches live data and compares against previous watch."""
     from .sync import (
         fetch_module_snapshot,
@@ -108,11 +109,23 @@ def watch(module_id: int, limit: int, skip: int):
         has_watch_changes,
     )
 
-    click.echo(f"Fetching module {module_id}...")
     snap = fetch_module_snapshot(module_id)
     mod_name = snap.get("module", {}).get("name", str(module_id))
 
-    click.echo(f"\nModule: {mod_name} (ID: {module_id})")
+    # Compare against previous watch snapshot
+    previous = load_watch_snap(module_id)
+    changed = False
+    diff = None
+    if previous:
+        diff = compute_watch_diff(previous, snap)
+        changed = has_watch_changes(diff)
+
+    # In quiet mode, skip all output if no changes (and not first watch)
+    if quiet and previous and not changed:
+        save_watch_snap(snap)
+        return
+
+    click.echo(f"Module: {mod_name} (ID: {module_id})")
     click.echo(f"URL:    {_module_url(module_id)}")
 
     # Show current users
@@ -134,11 +147,18 @@ def watch(module_id: int, limit: int, skip: int):
     for g in groups:
         click.echo(f"  {g.get('name', '?')} ({g.get('userCount', 0)} users)")
 
-    # Compare against previous watch snapshot
-    previous = load_watch_snap(module_id)
-    if previous:
-        diff = compute_watch_diff(previous, snap)
-        if has_watch_changes(diff):
+    # Show current items
+    items = snap.get("items", [])
+    click.echo(f"\nCurrent items ({len(items)}):")
+    for item in items:
+        iname = item.get("name", "?")
+        iid = item.get("id", "?")
+        click.echo(f"  {iname}")
+        click.echo(f"    URL: {_item_url(iid, iname)}")
+
+    # Show changes
+    if previous and diff:
+        if changed:
             click.echo(f"\nChanges since last watch ({previous['timestamp']}):")
             uc = diff["user_changes"]
             if uc["added"]:
