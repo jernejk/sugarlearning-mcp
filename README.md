@@ -140,6 +140,23 @@ sl watch 6307 --limit 20
 sl history --limit 5
 ```
 
+### Status Filtering
+
+Filter your backlog by completion status:
+
+```bash
+sl backlog --status outstanding    # Items you still need to do
+sl backlog --status completed      # Items you've finished
+sl backlog --status blocked        # Items that are blocked
+```
+
+Combine status filtering with search to find specific items in your backlog:
+
+```bash
+sl search "training" --status completed     # Completed training items
+sl search "security" --status outstanding   # Outstanding security items
+```
+
 ### Examples
 
 Watch for assignment changes on the "Spec Reviews" module:
@@ -148,10 +165,16 @@ Watch for assignment changes on the "Spec Reviews" module:
 sl watch 6307
 ```
 
-Search for training-related content (includes URLs for each result):
+Search for training-related content (includes clickable URLs for each result):
 
 ```bash
 sl search "training conferences"
+```
+
+Show your outstanding backlog items with URLs:
+
+```bash
+sl backlog --status outstanding --limit 10
 ```
 
 ## MCP Server
