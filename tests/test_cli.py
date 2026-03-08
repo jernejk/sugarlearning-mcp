@@ -59,9 +59,9 @@ def test_save_company_code_appends_newline(tmp_path, monkeypatch):
     monkeypatch.setattr("sugarlearning_tools.cli._CONFIG_HOME", tmp_path)
     env_path = tmp_path / ".env"
     env_path.write_text("SL_USER_ID=jk")  # No trailing newline
-    _save_company_code("SSW")
+    _save_company_code("ZAVA")
     env_content = env_path.read_text()
-    assert "SL_USER_ID=jk\nSL_COMPANY_CODE=SSW\n" == env_content
+    assert "SL_USER_ID=jk\nSL_COMPANY_CODE=ZAVA\n" == env_content
 
 
 # --- _save_company_code resets settings ---

@@ -63,11 +63,11 @@ def test_is_expired_no_key():
 # --- _decode_jwt_payload ---
 
 def test_decode_jwt_payload():
-    token = _make_jwt({"sub": "user1", "email": "jk@ssw.com.au"})
+    token = _make_jwt({"sub": "user1", "email": "jk@zava.com"})
     payload = _decode_jwt_payload(token)
     assert payload is not None
     assert payload["sub"] == "user1"
-    assert payload["email"] == "jk@ssw.com.au"
+    assert payload["email"] == "jk@zava.com"
 
 
 def test_decode_jwt_payload_invalid():
@@ -78,7 +78,7 @@ def test_decode_jwt_payload_invalid():
 # --- _extract_user_id ---
 
 def test_extract_user_id_from_email():
-    token = _make_jwt({"email": "jk@ssw.com.au"})
+    token = _make_jwt({"email": "jk@zava.com"})
     assert _extract_user_id(token) == "jk"
 
 

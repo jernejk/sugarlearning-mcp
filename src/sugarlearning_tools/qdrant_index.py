@@ -41,56 +41,51 @@ def build_index(snapshot: dict) -> None:
         vectors_config=VectorParams(size=_VECTOR_SIZE, distance=Distance.COSINE),
     )
 
-    points = []
-    point_id = 0
+    # Collect all texts and payloads first, then batch-encode
+    texts: list[str] = []
+    payloads: list[dict] = []
 
-    # Index modules
+    # Modules
     for mod in snapshot.get("modules", []):
         mid = str(mod.get("id", ""))
-        text = f"{mod.get('name', '')}. {mod.get('description', '')}"
-        vector = encoder.encode(text).tolist()
-        points.append(PointStruct(
-            id=point_id,
-            vector=vector,
-            payload={
-                "type": "module",
-                "id": mid,
-                "name": mod.get("name"),
-                "description": mod.get("description"),
-                "manager": mod.get("manager"),
-                "items_count": mod.get("items", 0),
-                "users_count": mod.get("users", 0),
-                "url": f"{settings.base_url}/{settings.company_code}/admin/modules/{mid}",
-            },
-        ))
-        point_id += 1
+        texts.append(f"{mod.get('name', '')}. {mod.get('description', '')}")
+        payloads.append({
+            "type": "module",
+            "id": mid,
+            "name": mod.get("name"),
+            "description": mod.get("description"),
+            "manager": mod.get("manager"),
+            "items_count": mod.get("items", 0),
+            "users_count": mod.get("users", 0),
+            "url": f"{settings.base_url}/{settings.company_code}/admin/modules/{mid}",
+        })
 
-    # Index learning items
+    # Learning items
+    # Build module ID → name lookup
+    mod_names = {str(m.get("id")): m.get("name", str(m.get("id"))) for m in snapshot.get("modules", [])}
+
     for mid, items in snapshot.get("module_items", {}).items():
-        # Find module name
-        mod_name = mid
-        for m in snapshot.get("modules", []):
-            if str(m.get("id")) == mid:
-                mod_name = m.get("name", mid)
-                break
-
+        mod_name = mod_names.get(mid, mid)
         for item in items:
-            text = f"{item.get('name', '')}. {item.get('description', '')}"
-            vector = encoder.encode(text).tolist()
-            points.append(PointStruct(
-                id=point_id,
-                vector=vector,
-                payload={
-                    "type": "learning_item",
-                    "id": str(item.get("id", "")),
-                    "name": item.get("name"),
-                    "description": item.get("description"),
-                    "module_id": mid,
-                    "module_name": mod_name,
-                    "status": item.get("status"),
-                },
-            ))
-            point_id += 1
+            texts.append(f"{item.get('name', '')}. {item.get('description', '')}")
+            payloads.append({
+                "type": "learning_item",
+                "id": str(item.get("id", "")),
+                "name": item.get("name"),
+                "description": item.get("description"),
+                "module_id": mid,
+                "module_name": mod_name,
+                "status": item.get("status"),
+            })
+
+    # Batch encode all texts at once (much faster than one-by-one)
+    vectors = encoder.encode(texts, show_progress_bar=len(texts) > 50)
+
+    # Build points
+    points = [
+        PointStruct(id=i, vector=vec.tolist(), payload=payload)
+        for i, (vec, payload) in enumerate(zip(vectors, payloads))
+    ]
 
     # Batch upsert
     batch_size = 100
