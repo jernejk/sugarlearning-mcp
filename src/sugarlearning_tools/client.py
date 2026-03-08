@@ -102,3 +102,38 @@ class SugarLearningClient:
             f"/api/v2/backlog/{self.company_code}/{uid}",
             json_body={"Status": status},
         )
+
+    # --- Leaderboard ---
+
+    def get_leaderboard_summary(self) -> dict:
+        """Get leaderboard summary (company info + available groups)."""
+        return self._get(
+            f"/api/Leaderboard/GetLeaderboardSummary?companyCode={self.company_code}"
+        )
+
+    def get_leaderboard(self, group_id: str = "all") -> list[dict]:
+        """Get leaderboard user rankings.
+
+        Args:
+            group_id: Group ID to filter by, or 'all' for everyone.
+        """
+        return self._get(
+            f"/api/Leaderboard/GetLeaderboardUserSummary"
+            f"?companyCode={self.company_code}&groupId={group_id}"
+        )
+
+    # --- User Profile ---
+
+    def get_my_profile(self) -> dict:
+        """Get current user's profile including badges."""
+        return self._get("/api/v2/users/me?companyId=0")
+
+    def get_user_profile(self, user_alias: str) -> dict:
+        """Get a user's profile by their alias (e.g. 'jk').
+
+        Args:
+            user_alias: The user's username alias.
+        """
+        return self._get(
+            f"/api/v2/users/MyProfile?userNameAlias={user_alias}&companyId=0"
+        )

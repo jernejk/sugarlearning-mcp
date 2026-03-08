@@ -115,6 +115,9 @@ This fetches all modules, items, and assignments, then saves a snapshot. Run it 
 | `sl history` | List all saved snapshots |
 | `sl backlog` | Show your learning backlog |
 | `sl search QUERY` | Search modules and items (Qdrant or text fallback) |
+| `sl leaderboard` | Show company leaderboard rankings |
+| `sl badges [USER]` | Show badges earned by a user |
+| `sl profile [USER]` | Show user profile with rank and stats |
 | `sl index` | Build/rebuild Qdrant vector index |
 | `sl mcp` | Start the MCP server (stdio) |
 
@@ -144,6 +147,22 @@ sl search "training" --status completed     # Completed training items
 sl search "security" --status outstanding   # Outstanding security items
 ```
 
+### Leaderboard, Badges & Profile
+
+See how you and your team are tracking:
+
+```bash
+sl leaderboard                    # Company rankings (hides 0% users)
+sl leaderboard --all              # Include users with 0% progress
+sl leaderboard --group 5 --limit 10  # Top 10 in a specific group
+
+sl badges                         # Your earned badges
+sl badges jk                     # Another user's badges
+
+sl profile                        # Your profile with rank & stats
+sl profile jk                    # Another user's profile
+```
+
 ### JSON Output
 
 Add `--json` to any command for machine-readable output:
@@ -153,6 +172,8 @@ sl backlog --status outstanding --json
 sl search "training" --json
 sl watch 6307 --json
 sl diff --json
+sl leaderboard --json
+sl profile --json
 ```
 
 ### Examples
@@ -190,6 +211,9 @@ The MCP server exposes SugarLearning data to AI agents via stdio transport. It p
 | `get_recent_changes` | Get recent change diffs from local tracking |
 | `search_learning` | Semantic search across learning content |
 | `get_module_list` | Get module list (employee view) |
+| `get_leaderboard` | Get company leaderboard rankings |
+| `get_user_profile` | Get a user's profile with badges |
+| `get_user_badges` | Get badges earned by a user |
 
 ### Claude Code
 
@@ -213,6 +237,9 @@ Then ask Claude things like:
 - "Who is assigned to the Spec Reviews module?"
 - "What's in my learning backlog?"
 - "Have there been any recent changes to learning modules?"
+- "Who's leading the company leaderboard?"
+- "What badges has jk earned?"
+- "Show me my SugarLearning profile and rank"
 
 ### VS Code (Copilot / Continue)
 

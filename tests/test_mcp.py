@@ -196,3 +196,80 @@ async def test_search_learning_with_limit():
             result = await mcp.call_tool("search_learning", {"query": "i", "limit": 1})
             data = _extract_data(result)
             assert len(data) <= 1
+
+
+# --- Leaderboard, Profile, Badges tools ---
+
+FAKE_LEADERBOARD = [
+    {"position": 1, "fullName": "Alice", "userNameAlias": "alice",
+     "percentageOfPointEarned": 100, "totalBadges": 10, "totalPointsEarned": 500},
+    {"position": 2, "fullName": "Bob", "userNameAlias": "bob",
+     "percentageOfPointEarned": 80, "totalBadges": 5, "totalPointsEarned": 400},
+    {"position": 3, "fullName": "Zero", "userNameAlias": "zero",
+     "percentageOfPointEarned": 0, "totalBadges": 0, "totalPointsEarned": 0},
+]
+
+FAKE_PROFILE = {
+    "userNameAlias": "alice", "firstName": "Alice", "lastName": "Smith",
+    "badges": [
+        {"moduleName": "Induction", "grantedText": "2 months ago"},
+        {"moduleName": "Security", "grantedText": "1 month ago"},
+    ],
+}
+
+
+@pytest.mark.anyio
+async def test_get_leaderboard():
+    mock = _mock_client()
+    mock.get_leaderboard.return_value = FAKE_LEADERBOARD
+    with patch("sugarlearning_tools.mcp_server._client", return_value=mock):
+        result = await mcp.call_tool("get_leaderboard", {"group_id": "all", "limit": 20})
+        data = _extract_data(result)
+        # Should filter out 0% user
+        assert len(data) == 2
+        assert data[0]["fullName"] == "Alice"
+        mock.get_leaderboard.assert_called_once_with(group_id="all")
+
+
+@pytest.mark.anyio
+async def test_get_user_profile_current():
+    mock = _mock_client()
+    mock.get_my_profile.return_value = FAKE_PROFILE
+    with patch("sugarlearning_tools.mcp_server._client", return_value=mock):
+        result = await mcp.call_tool("get_user_profile", {})
+        data = _extract_data(result)
+        assert data["userNameAlias"] == "alice"
+        mock.get_my_profile.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_get_user_profile_by_alias():
+    mock = _mock_client()
+    mock.get_user_profile.return_value = FAKE_PROFILE
+    with patch("sugarlearning_tools.mcp_server._client", return_value=mock):
+        result = await mcp.call_tool("get_user_profile", {"user_alias": "alice"})
+        data = _extract_data(result)
+        assert data["userNameAlias"] == "alice"
+        mock.get_user_profile.assert_called_once_with("alice")
+
+
+@pytest.mark.anyio
+async def test_get_user_badges():
+    mock = _mock_client()
+    mock.get_my_profile.return_value = FAKE_PROFILE
+    with patch("sugarlearning_tools.mcp_server._client", return_value=mock):
+        result = await mcp.call_tool("get_user_badges", {})
+        data = _extract_data(result)
+        assert len(data) == 2
+        assert data[0]["moduleName"] == "Induction"
+
+
+@pytest.mark.anyio
+async def test_get_user_badges_by_alias():
+    mock = _mock_client()
+    mock.get_user_profile.return_value = FAKE_PROFILE
+    with patch("sugarlearning_tools.mcp_server._client", return_value=mock):
+        result = await mcp.call_tool("get_user_badges", {"user_alias": "alice"})
+        data = _extract_data(result)
+        assert len(data) == 2
+        mock.get_user_profile.assert_called_once_with("alice")

@@ -504,3 +504,177 @@ def test_sync_json(tmp_path, monkeypatch):
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["modules"]["added"][0]["name"] == "New Module"
+
+
+# --- Fixtures for new features ---
+
+FAKE_LEADERBOARD = [
+    {
+        "position": 1, "fullName": "Alice Smith", "userNameAlias": "alice",
+        "totalAssigned": 50, "totalCompleted": 50, "totalPoints": 500,
+        "totalPointsEarned": 500, "percentageOfPointEarned": 100,
+        "totalBadges": 10, "joinedDateTime": "2022-01-01T00:00:00",
+        "lastCompletedDateTime": "2026-03-01T00:00:00",
+        "groupNames": ["Developers", "Managers"],
+    },
+    {
+        "position": 2, "fullName": "Bob Jones", "userNameAlias": "bob",
+        "totalAssigned": 50, "totalCompleted": 40, "totalPoints": 500,
+        "totalPointsEarned": 400, "percentageOfPointEarned": 80,
+        "totalBadges": 5, "joinedDateTime": "2023-01-01T00:00:00",
+        "lastCompletedDateTime": "2026-02-28T00:00:00",
+        "groupNames": ["Developers"],
+    },
+    {
+        "position": 3, "fullName": "Zero User", "userNameAlias": "zero",
+        "totalAssigned": 50, "totalCompleted": 0, "totalPoints": 500,
+        "totalPointsEarned": 0, "percentageOfPointEarned": 0,
+        "totalBadges": 0, "joinedDateTime": "2024-01-01T00:00:00",
+        "lastCompletedDateTime": None,
+        "groupNames": [],
+    },
+]
+
+FAKE_PROFILE = {
+    "userId": "u1",
+    "userNameAlias": "alice",
+    "firstName": "Alice",
+    "lastName": "Smith",
+    "badges": [
+        {"moduleName": "Induction", "grantedText": "2 months ago", "grantedDateTimeText": "2026-01-01"},
+        {"moduleName": "Security", "grantedText": "1 month ago", "grantedDateTimeText": "2026-02-01"},
+    ],
+    "companies": [{"companyId": 1, "companyName": "Zava"}],
+}
+
+
+# --- leaderboard command ---
+
+
+def test_leaderboard_output(monkeypatch):
+    with patch("sugarlearning_tools.client.SugarLearningClient") as MockClient:
+        MockClient.return_value.get_leaderboard.return_value = FAKE_LEADERBOARD
+        runner = CliRunner()
+        result = runner.invoke(cli, ["leaderboard"])
+        assert result.exit_code == 0
+        assert "Alice Smith" in result.output
+        assert "Bob Jones" in result.output
+        # Zero User should be hidden by default (0% progress)
+        assert "Zero User" not in result.output
+
+
+def test_leaderboard_json(monkeypatch):
+    with patch("sugarlearning_tools.client.SugarLearningClient") as MockClient:
+        MockClient.return_value.get_leaderboard.return_value = FAKE_LEADERBOARD
+        runner = CliRunner()
+        result = runner.invoke(cli, ["leaderboard", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        # Should exclude 0% user
+        assert len(data) == 2
+        assert data[0]["fullName"] == "Alice Smith"
+
+
+def test_leaderboard_limit(monkeypatch):
+    with patch("sugarlearning_tools.client.SugarLearningClient") as MockClient:
+        MockClient.return_value.get_leaderboard.return_value = FAKE_LEADERBOARD
+        runner = CliRunner()
+        result = runner.invoke(cli, ["leaderboard", "--limit", "1", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert len(data) == 1
+
+
+def test_leaderboard_show_all(monkeypatch):
+    """--all should include 0% progress users."""
+    with patch("sugarlearning_tools.client.SugarLearningClient") as MockClient:
+        MockClient.return_value.get_leaderboard.return_value = FAKE_LEADERBOARD
+        runner = CliRunner()
+        result = runner.invoke(cli, ["leaderboard", "--all", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert len(data) == 3
+        assert any(u["userNameAlias"] == "zero" for u in data)
+
+
+# --- badges command ---
+
+
+def test_badges_output(monkeypatch):
+    with patch("sugarlearning_tools.client.SugarLearningClient") as MockClient:
+        MockClient.return_value.get_my_profile.return_value = FAKE_PROFILE
+        runner = CliRunner()
+        result = runner.invoke(cli, ["badges"])
+        assert result.exit_code == 0
+        assert "Induction" in result.output
+        assert "Security" in result.output
+        assert "2 total" in result.output
+
+
+def test_badges_json(monkeypatch):
+    with patch("sugarlearning_tools.client.SugarLearningClient") as MockClient:
+        MockClient.return_value.get_my_profile.return_value = FAKE_PROFILE
+        runner = CliRunner()
+        result = runner.invoke(cli, ["badges", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert len(data) == 2
+        assert data[0]["moduleName"] == "Induction"
+
+
+def test_badges_other_user(monkeypatch):
+    with patch("sugarlearning_tools.client.SugarLearningClient") as MockClient:
+        MockClient.return_value.get_user_profile.return_value = FAKE_PROFILE
+        runner = CliRunner()
+        result = runner.invoke(cli, ["badges", "alice"])
+        assert result.exit_code == 0
+        assert "Alice Smith" in result.output
+        MockClient.return_value.get_user_profile.assert_called_once_with("alice")
+
+
+def test_badges_no_badges(monkeypatch):
+    empty_profile = {**FAKE_PROFILE, "badges": []}
+    with patch("sugarlearning_tools.client.SugarLearningClient") as MockClient:
+        MockClient.return_value.get_my_profile.return_value = empty_profile
+        runner = CliRunner()
+        result = runner.invoke(cli, ["badges"])
+        assert result.exit_code == 0
+        assert "no badges" in result.output
+
+
+# --- profile command ---
+
+
+def test_profile_output(monkeypatch):
+    with patch("sugarlearning_tools.client.SugarLearningClient") as MockClient:
+        MockClient.return_value.get_my_profile.return_value = FAKE_PROFILE
+        MockClient.return_value.get_leaderboard.return_value = FAKE_LEADERBOARD
+        runner = CliRunner()
+        result = runner.invoke(cli, ["profile"])
+        assert result.exit_code == 0
+        assert "Alice Smith" in result.output
+        assert "#1" in result.output
+        assert "100%" in result.output
+
+
+def test_profile_json(monkeypatch):
+    with patch("sugarlearning_tools.client.SugarLearningClient") as MockClient:
+        MockClient.return_value.get_my_profile.return_value = FAKE_PROFILE
+        MockClient.return_value.get_leaderboard.return_value = FAKE_LEADERBOARD
+        runner = CliRunner()
+        result = runner.invoke(cli, ["profile", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["alias"] == "alice"
+        assert data["leaderboard"]["position"] == 1
+        assert len(data["badges"]) == 2
+
+
+def test_profile_other_user(monkeypatch):
+    with patch("sugarlearning_tools.client.SugarLearningClient") as MockClient:
+        MockClient.return_value.get_user_profile.return_value = FAKE_PROFILE
+        MockClient.return_value.get_leaderboard.return_value = FAKE_LEADERBOARD
+        runner = CliRunner()
+        result = runner.invoke(cli, ["profile", "alice"])
+        assert result.exit_code == 0
+        MockClient.return_value.get_user_profile.assert_called_once_with("alice")

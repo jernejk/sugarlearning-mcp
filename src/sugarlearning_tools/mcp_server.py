@@ -104,5 +104,47 @@ def get_module_list() -> list[dict]:
     return _client().get_module_list()
 
 
+@mcp.tool
+def get_leaderboard(group_id: str = "all", limit: int = 20) -> list[dict]:
+    """Get company leaderboard rankings showing user progress, points, and badges.
+
+    Args:
+        group_id: Group ID to filter by, or 'all' for everyone.
+        limit: Maximum number of users to return (default 20).
+    """
+    data = _client().get_leaderboard(group_id=group_id)
+    # Filter out 0% users by default
+    data = [u for u in data if u.get("percentageOfPointEarned", 0) > 0]
+    return data[:limit]
+
+
+@mcp.tool
+def get_user_profile(user_alias: str | None = None) -> dict:
+    """Get a user's profile including badges, companies, and personal info.
+
+    Args:
+        user_alias: User's alias (e.g. 'jk'). Defaults to current user.
+    """
+    client = _client()
+    if user_alias:
+        return client.get_user_profile(user_alias)
+    return client.get_my_profile()
+
+
+@mcp.tool
+def get_user_badges(user_alias: str | None = None) -> list[dict]:
+    """Get badges earned by a user, showing which modules they completed.
+
+    Args:
+        user_alias: User's alias (e.g. 'jk'). Defaults to current user.
+    """
+    client = _client()
+    if user_alias:
+        profile = client.get_user_profile(user_alias)
+    else:
+        profile = client.get_my_profile()
+    return profile.get("badges", [])
+
+
 if __name__ == "__main__":
     mcp.run()

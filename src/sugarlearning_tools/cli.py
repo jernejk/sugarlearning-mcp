@@ -503,5 +503,140 @@ def backlog(limit: int, skip: int, status: str, use_json: bool):
         click.echo(f"\nNo {status} items found.")
 
 
+@cli.command()
+@click.option("--group", "-g", default="all", help="Filter by group ID (default: all)")
+@click.option("--limit", "-l", type=int, default=0, help="Limit number of users shown (0 = all)")
+@click.option("--all", "show_all", is_flag=True, help="Include users with 0%% progress")
+@click.option("--json", "use_json", is_flag=True, help="Output as JSON")
+def leaderboard(group: str, limit: int, show_all: bool, use_json: bool):
+    """Show company leaderboard rankings."""
+    from .client import SugarLearningClient
+
+    client = SugarLearningClient()
+    data = client.get_leaderboard(group_id=group)
+
+    # By default, hide 0% progress users (matching the UI checkbox)
+    if not show_all:
+        data = [u for u in data if u.get("percentageOfPointEarned", 0) > 0]
+
+    display = data[:limit] if limit else data
+
+    if use_json:
+        click.echo(json.dumps(display, indent=2, default=str))
+        return
+
+    click.echo(f"Leaderboard ({len(data)} users{', showing ' + str(len(display)) if limit else ''}):\n")
+    click.echo(f"{'#':>4}  {'User':<30}  {'Progress':>10}  {'Points':>7}  {'Badges':>7}")
+    click.echo(f"{'—' * 4}  {'—' * 30}  {'—' * 10}  {'—' * 7}  {'—' * 7}")
+    for u in display:
+        pos = u.get("position", "?")
+        name = u.get("fullName") or u.get("userNameAlias", "?")
+        pct = u.get("percentageOfPointEarned", 0)
+        points = u.get("totalPointsEarned", 0)
+        badges = u.get("totalBadges", 0)
+        click.echo(f"{pos:>4}  {name:<30}  {pct:>9}%  {points:>7}  {badges:>7}")
+
+
+@cli.command()
+@click.argument("user_alias", required=False)
+@click.option("--json", "use_json", is_flag=True, help="Output as JSON")
+def badges(user_alias: str | None, use_json: bool):
+    """Show badges earned by a user. Defaults to current user."""
+    from .client import SugarLearningClient
+
+    client = SugarLearningClient()
+    if user_alias:
+        profile = client.get_user_profile(user_alias)
+    else:
+        profile = client.get_my_profile()
+
+    badge_list = profile.get("badges", [])
+    user_name = profile.get("firstName", "") + " " + profile.get("lastName", "")
+    user_name = user_name.strip() or profile.get("userNameAlias", "?")
+
+    if use_json:
+        click.echo(json.dumps(badge_list, indent=2, default=str))
+        return
+
+    if not badge_list:
+        click.echo(f"{user_name} has no badges yet.")
+        return
+
+    click.echo(f"Badges for {user_name} ({len(badge_list)} total):\n")
+    for b in badge_list:
+        mod_name = b.get("moduleName", "?")
+        granted = b.get("grantedText") or b.get("grantedDateTimeText", "?")
+        losing = b.get("losingText")
+        line = f"  🏅 {mod_name}  (earned {granted})"
+        if losing:
+            line += f"  ⚠️  expiring {losing}"
+        click.echo(line)
+
+
+@cli.command()
+@click.argument("user_alias", required=False)
+@click.option("--json", "use_json", is_flag=True, help="Output as JSON")
+def profile(user_alias: str | None, use_json: bool):
+    """Show user profile with stats, rank, and badges. Defaults to current user."""
+    from .client import SugarLearningClient
+
+    client = SugarLearningClient()
+    if user_alias:
+        prof = client.get_user_profile(user_alias)
+    else:
+        prof = client.get_my_profile()
+
+    alias = prof.get("userNameAlias", user_alias or "?")
+    full_name = (prof.get("firstName", "") + " " + prof.get("lastName", "")).strip()
+    badge_list = prof.get("badges", [])
+
+    # Find this user's leaderboard entry for rank/points/stats
+    lb_entry = None
+    try:
+        lb = client.get_leaderboard()
+        for entry in lb:
+            if (entry.get("userNameAlias") or "").lower() == alias.lower():
+                lb_entry = entry
+                break
+    except Exception:
+        pass
+
+    if use_json:
+        output = {
+            "alias": alias,
+            "fullName": full_name,
+            "badges": badge_list,
+            "leaderboard": lb_entry,
+        }
+        click.echo(json.dumps(output, indent=2, default=str))
+        return
+
+    click.echo(f"Profile: {full_name or alias}")
+    click.echo(f"  Alias: {alias}")
+
+    if lb_entry:
+        click.echo(f"  Rank: #{lb_entry.get('position', '?')}")
+        click.echo(f"  Progress: {lb_entry.get('percentageOfPointEarned', 0)}%")
+        click.echo(f"  Points: {lb_entry.get('totalPointsEarned', 0)} / {lb_entry.get('totalPoints', 0)}")
+        click.echo(f"  Completed: {lb_entry.get('totalCompleted', 0)} / {lb_entry.get('totalAssigned', 0)} items")
+        click.echo(f"  Badges: {lb_entry.get('totalBadges', 0)}")
+        if lb_entry.get("lastCompletedDateTime"):
+            click.echo(f"  Last completed: {lb_entry['lastCompletedDateTime']}")
+        if lb_entry.get("joinedDateTime"):
+            click.echo(f"  Joined: {lb_entry['joinedDateTime']}")
+        groups = lb_entry.get("groupNames", [])
+        if groups:
+            click.echo(f"  Groups: {', '.join(groups)}")
+    else:
+        click.echo(f"  Badges: {len(badge_list)}")
+
+    if badge_list:
+        click.echo(f"\n  Recent badges:")
+        for b in badge_list[:5]:
+            click.echo(f"    🏅 {b.get('moduleName', '?')} ({b.get('grantedText', '?')})")
+        if len(badge_list) > 5:
+            click.echo(f"    ... and {len(badge_list) - 5} more")
+
+
 if __name__ == "__main__":
     cli()
