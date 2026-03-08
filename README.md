@@ -1,6 +1,10 @@
 # SugarLearning MCP
 
-CLI tools, change tracker, and MCP server for [SugarLearning](https://my.sugarlearning.com) — a learning management system for tracking employee training modules and learning items.
+> **Unofficial** community-built CLI tools, change tracker, and MCP server for [SugarLearning](https://my.sugarlearning.com).
+>
+> This project is not affiliated with or endorsed by SugarLearning. It uses the existing SugarLearning API with your own credentials.
+
+SugarLearning is a learning management system for tracking employee training modules and learning items.
 
 ## What it does
 
@@ -54,9 +58,9 @@ uv sync
 Then prefix all commands with `uv run`:
 
 ```bash
-sl login
-sl sync
-sl search "training"
+uv run sl login
+uv run sl sync
+uv run sl search "training"
 ```
 
 </details>
@@ -123,9 +127,18 @@ This fetches all modules, items, and assignments, then saves a snapshot. Run it 
 | `sl watch MODULE_ID` | Show current assignments and change history for a module |
 | `sl history` | List all saved snapshots |
 | `sl backlog` | Show your learning backlog |
-| `sl search QUERY` | Semantic search via Qdrant |
+| `sl search QUERY` | Search modules and items (Qdrant or text fallback) |
 | `sl index` | Build/rebuild Qdrant vector index |
 | `sl mcp` | Start the MCP server (stdio) |
+
+Most commands support `--limit N` and `--skip N` for pagination:
+
+```bash
+sl search "training" --limit 5
+sl backlog --limit 10 --skip 5
+sl watch 6307 --limit 20
+sl history --limit 5
+```
 
 ### Examples
 
@@ -135,7 +148,7 @@ Watch for assignment changes on the "Spec Reviews" module:
 sl watch 6307
 ```
 
-Search for training-related content:
+Search for training-related content (includes URLs for each result):
 
 ```bash
 sl search "training conferences"

@@ -3,11 +3,36 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import click
 
 from .config import get_settings
+
+
+def _slugify(name: str) -> str:
+    """Convert a name to a URL-friendly slug."""
+    s = name.lower().strip()
+    s = re.sub(r"[^\w\s-]", "", s)  # strip non-alphanumeric
+    s = re.sub(r"[\s_]+", "-", s)   # spaces/underscores to hyphens
+    s = re.sub(r"-+", "-", s).strip("-")
+    return s
+
+
+def _item_url(item_id, name: str | None = None) -> str:
+    """Build a SugarLearning item URL."""
+    settings = get_settings()
+    base = f"{settings.base_url}/{settings.company_code}/items/{item_id}"
+    if name:
+        base += f"/{_slugify(name)}"
+    return base
+
+
+def _module_url(module_id) -> str:
+    """Build a SugarLearning admin module URL."""
+    settings = get_settings()
+    return f"{settings.base_url}/{settings.company_code}/admin/modules/{module_id}"
 
 
 @click.group()
@@ -71,7 +96,9 @@ def diff():
 
 @cli.command()
 @click.argument("module_id", type=int)
-def watch(module_id: int):
+@click.option("--limit", "-l", type=int, default=0, help="Limit number of users shown (0 = all)")
+@click.option("--skip", "-s", type=int, default=0, help="Skip first N users")
+def watch(module_id: int, limit: int, skip: int):
     """Show assignment changes for a specific module across all diffs."""
     settings = get_settings()
     mid = str(module_id)
@@ -91,8 +118,16 @@ def watch(module_id: int):
                 break
 
         click.echo(f"Module: {mod_name} (ID: {mid})")
-        click.echo(f"\nCurrent users ({len(users)}):")
-        for u in users:
+        click.echo(f"URL:    {_module_url(mid)}")
+
+        # Apply pagination to users
+        total_users = len(users)
+        display_users = users[skip:] if skip else users
+        if limit:
+            display_users = display_users[:limit]
+
+        click.echo(f"\nCurrent users ({total_users} total, showing {len(display_users)}):")
+        for u in display_users:
             email = u.get("emailAddress", u.get("userId", "?"))
             pct = u.get("progressPercentage", 0)
             click.echo(f"  {email} — {pct}% complete")
@@ -129,46 +164,60 @@ def watch(module_id: int):
 
 
 @cli.command()
-def history():
+@click.option("--limit", "-l", type=int, default=0, help="Limit number of snapshots shown (0 = all)")
+@click.option("--skip", "-s", type=int, default=0, help="Skip first N snapshots")
+def history(limit: int, skip: int):
     """List all snapshots."""
     settings = get_settings()
     files = sorted(settings.snapshots_dir.glob("*.json"))
     if not files:
         click.echo("No snapshots found. Run 'sl sync' first.")
         return
-    for f in files:
+    display = files[skip:] if skip else files
+    if limit:
+        display = display[:limit]
+    click.echo(f"Snapshots ({len(files)} total, showing {len(display)}):\n")
+    for f in display:
         size = f.stat().st_size
         click.echo(f"  {f.stem}  ({size:,} bytes)")
 
 
 @cli.command()
 @click.argument("query")
-def search(query: str):
+@click.option("--limit", "-l", type=int, default=0, help="Limit number of results (0 = all)")
+def search(query: str, limit: int):
     """Search learning items. Uses Qdrant if available, otherwise searches latest snapshot."""
+    settings = get_settings()
+
     # Try Qdrant first (only if collection exists)
     try:
         from qdrant_client import QdrantClient
-        qc = QdrantClient(url=get_settings().qdrant_url, timeout=2)
-        if qc.collection_exists(get_settings().qdrant_collection):
+        qc = QdrantClient(url=settings.qdrant_url, timeout=2)
+        if qc.collection_exists(settings.qdrant_collection):
             from .qdrant_index import search_items
-            results = search_items(query)
+            qdrant_limit = limit if limit else 20
+            results = search_items(query, limit=qdrant_limit)
             if results:
                 click.echo(f"Qdrant results for '{query}':\n")
                 for r in results:
                     score = r.get("score", 0)
                     payload = r.get("payload", {})
-                    click.echo(f"  [{score:.3f}] {payload.get('name', '?')}")
+                    rid = payload.get("id", "?")
+                    rname = payload.get("name", "?")
+                    rtype = payload.get("type", "item")
+                    prefix = "📦" if rtype == "module" else "📄"
+                    click.echo(f"  {prefix} [{score:.3f}] {rname}")
                     if payload.get("module_name"):
                         click.echo(f"          Module: {payload['module_name']}")
-                    if payload.get("description"):
-                        desc = payload["description"][:120]
-                        click.echo(f"          {desc}...")
+                    if rtype == "module":
+                        click.echo(f"          URL: {_module_url(rid)}")
+                    else:
+                        click.echo(f"          URL: {_item_url(rid, rname)}")
                 return
     except Exception:
         pass
 
     # Fallback: text search in latest snapshot
-    settings = get_settings()
     snapshots = sorted(settings.snapshots_dir.glob("*.json"))
     if not snapshots:
         click.echo("No snapshots found. Run 'sl sync' first.")
@@ -202,12 +251,18 @@ def search(query: str):
         click.echo(f"No results for '{query}'.")
         return
 
-    click.echo(f"Found {len(results)} result(s) for '{query}':\n")
-    for kind, rid, name, mod_name in results:
+    display = results[:limit] if limit else results
+
+    click.echo(f"Found {len(results)} result(s) for '{query}'" + (f" (showing {len(display)}):" if limit and limit < len(results) else ":") + "\n")
+    for kind, rid, name, mod_name in display:
         prefix = "📦" if kind == "module" else "📄"
         click.echo(f"  {prefix} [{rid}] {name}")
-        if mod_name and kind == "item":
-            click.echo(f"          Module: {mod_name}")
+        if kind == "module":
+            click.echo(f"          URL: {_module_url(rid)}")
+        else:
+            click.echo(f"          URL: {_item_url(rid, name)}")
+            if mod_name:
+                click.echo(f"          Module: {mod_name}")
 
 
 @cli.command()
@@ -234,7 +289,9 @@ def mcp():
 
 
 @cli.command()
-def backlog():
+@click.option("--limit", "-l", type=int, default=0, help="Limit number of modules shown (0 = all)")
+@click.option("--skip", "-s", type=int, default=0, help="Skip first N modules")
+def backlog(limit: int, skip: int):
     """Show your current learning backlog."""
     from .client import SugarLearningClient
 
@@ -247,11 +304,16 @@ def backlog():
 
     modules = data.get("modules", [])
     if modules:
-        click.echo(f"\nModules ({len(modules)}):")
-        for m in modules:
+        display = modules[skip:] if skip else modules
+        if limit:
+            display = display[:limit]
+        click.echo(f"\nModules ({len(modules)} total, showing {len(display)}):")
+        for m in display:
             name = m.get("name", "?")
             items = m.get("items", [])
+            mid = m.get("id", "?")
             click.echo(f"  {name} ({len(items)} items)")
+            click.echo(f"    URL: {_module_url(mid)}")
 
 
 if __name__ == "__main__":
