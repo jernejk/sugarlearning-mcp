@@ -1,4 +1,4 @@
-# SugarLearning MCP
+# Unofficial SugarLearning CLI + MCP
 
 > **Unofficial** community-built CLI tools, change tracker, and MCP server for [SugarLearning](https://my.sugarlearning.com).
 >
