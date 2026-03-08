@@ -8,7 +8,26 @@ from pathlib import Path
 
 import click
 
-from .config import get_settings
+from .config import get_settings, _CONFIG_HOME
+
+
+def _save_company_code(code: str) -> None:
+    """Save company code to the config .env file."""
+    env_path = _CONFIG_HOME / ".env"
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    existing = env_path.read_text() if env_path.exists() else ""
+
+    if "SL_COMPANY_CODE" in existing:
+        # Replace existing value
+        import re as _re
+        updated = _re.sub(r"SL_COMPANY_CODE=.*", f"SL_COMPANY_CODE={code}", existing)
+        env_path.write_text(updated)
+    else:
+        with env_path.open("a") as f:
+            if existing and not existing.endswith("\n"):
+                f.write("\n")
+            f.write(f"SL_COMPANY_CODE={code}\n")
+    click.echo(f"Company code set: {code}")
 
 
 def _slugify(name: str) -> str:
@@ -36,22 +55,30 @@ def _module_url(module_id) -> str:
 
 
 @click.group()
-def cli():
+@click.option("--json", "use_json", is_flag=True, help="Output as JSON instead of human-readable text")
+@click.pass_context
+def cli(ctx, use_json: bool):
     """SugarLearning data tools and tracker."""
-    pass
+    ctx.ensure_object(dict)
+    ctx.obj["json"] = use_json
 
 
 @cli.command()
 @click.option("--oauth", is_flag=True, help="Use full OAuth PKCE flow (requires registered redirect URI)")
 @click.option("--token", "-t", help="Provide Bearer token directly (skip interactive prompt)")
 @click.option("--refresh-token", "-r", help="Provide a refresh token (from browser localStorage)")
-def login(oauth: bool, token: str | None, refresh_token: str | None):
+@click.option("--company", "-c", help="Set your company code (saves to config)")
+def login(oauth: bool, token: str | None, refresh_token: str | None, company: str | None):
     """Authenticate with SugarLearning.
 
     Default: paste a Bearer token from browser DevTools.
+    Use --company/-c to set your company code (e.g. sl login --company SSW).
     Use --oauth for full OAuth PKCE flow (if redirect URI is registered).
     Use -r/--refresh-token to provide a refresh token for auto-renewal.
     """
+    if company:
+        _save_company_code(company)
+
     if oauth:
         from .auth import login_oauth
         login_oauth()
@@ -70,18 +97,23 @@ def login(oauth: bool, token: str | None, refresh_token: str | None):
 
 
 @cli.command()
-def sync():
+@click.pass_context
+def sync(ctx):
     """Fetch latest data, create snapshot, and show changes."""
     from .sync import sync as do_sync, format_diff
 
     snapshot_path, diff_path = do_sync()
     if diff_path:
-        diff = json.loads(diff_path.read_text())
-        click.echo("\n" + format_diff(diff))
+        diff_data = json.loads(diff_path.read_text())
+        if ctx.obj["json"]:
+            click.echo(json.dumps(diff_data, indent=2, default=str))
+        else:
+            click.echo("\n" + format_diff(diff_data))
 
 
 @cli.command()
-def diff():
+@click.pass_context
+def diff(ctx):
     """Show the latest diff."""
     from .sync import format_diff
 
@@ -91,7 +123,10 @@ def diff():
         click.echo("No diffs found. Run 'sl sync' first.")
         return
     latest = json.loads(files[-1].read_text())
-    click.echo(format_diff(latest))
+    if ctx.obj["json"]:
+        click.echo(json.dumps(latest, indent=2, default=str))
+    else:
+        click.echo(format_diff(latest))
 
 
 @cli.command()
@@ -99,7 +134,8 @@ def diff():
 @click.option("--limit", "-l", type=int, default=0, help="Limit number of users shown (0 = all)")
 @click.option("--skip", "-s", type=int, default=0, help="Skip first N users")
 @click.option("--quiet", "-q", is_flag=True, help="Only output if changes detected (useful for cron/scripts)")
-def watch(module_id: int, limit: int, skip: int, quiet: bool):
+@click.pass_context
+def watch(ctx, module_id: int, limit: int, skip: int, quiet: bool):
     """Watch a module for changes. Fetches live data and compares against previous watch."""
     from .sync import (
         fetch_module_snapshot,
@@ -120,78 +156,91 @@ def watch(module_id: int, limit: int, skip: int, quiet: bool):
         diff = compute_watch_diff(previous, snap)
         changed = has_watch_changes(diff)
 
+    use_json = ctx.obj["json"]
+
     # In quiet mode, skip all output if no changes (and not first watch)
     if quiet and previous and not changed:
         save_watch_snap(snap)
         return
 
-    click.echo(f"Module: {mod_name} (ID: {module_id})")
-    click.echo(f"URL:    {_module_url(module_id)}")
-
-    # Show current users
-    users = snap.get("users", [])
-    total_users = len(users)
-    display_users = users[skip:] if skip else users
-    if limit:
-        display_users = display_users[:limit]
-
-    click.echo(f"\nCurrent users ({total_users} total, showing {len(display_users)}):")
-    for u in display_users:
-        email = u.get("emailAddress", u.get("userId", "?"))
-        pct = u.get("progressPercentage", 0)
-        click.echo(f"  {email} — {pct}% complete")
-
-    # Show current groups
-    groups = snap.get("groups", [])
-    click.echo(f"\nCurrent groups ({len(groups)}):")
-    for g in groups:
-        click.echo(f"  {g.get('name', '?')} ({g.get('userCount', 0)} users)")
-
-    # Show current items
-    items = snap.get("items", [])
-    click.echo(f"\nCurrent items ({len(items)}):")
-    for item in items:
-        iname = item.get("name", "?")
-        iid = item.get("id", "?")
-        click.echo(f"  {iname}")
-        click.echo(f"    URL: {_item_url(iid, iname)}")
-
-    # Show changes
-    if previous and diff:
-        if changed:
-            click.echo(f"\nChanges since last watch ({previous['timestamp']}):")
-            uc = diff["user_changes"]
-            if uc["added"]:
-                for u in uc["added"]:
-                    click.echo(f"  + User: {u.get('emailAddress', u.get('userId', '?'))}")
-            if uc["removed"]:
-                for u in uc["removed"]:
-                    click.echo(f"  - User: {u.get('emailAddress', u.get('userId', '?'))}")
-            gc = diff["group_changes"]
-            if gc["added"]:
-                for g in gc["added"]:
-                    click.echo(f"  + Group: {g.get('name', '?')}")
-            if gc["removed"]:
-                for g in gc["removed"]:
-                    click.echo(f"  - Group: {g.get('name', '?')}")
-            ic = diff["item_changes"]
-            if ic["added"]:
-                for i in ic["added"]:
-                    click.echo(f"  + Item: {i.get('name', '?')}")
-            if ic["removed"]:
-                for i in ic["removed"]:
-                    click.echo(f"  - Item: {i.get('name', '?')}")
-            if ic["changed"]:
-                for i in ic["changed"]:
-                    click.echo(f"  ~ Item: {i.get('name', '?')}")
-            mc = diff.get("module_changes", {})
-            if mc:
-                for field, vals in mc.items():
-                    click.echo(f"  ~ Module {field}: {vals['old']} -> {vals['new']}")
-        else:
-            click.echo(f"\nNo changes since last watch ({previous['timestamp']}).")
+    if use_json:
+        output = {
+            "module": {"id": module_id, "name": mod_name, "url": _module_url(module_id)},
+            "users": snap.get("users", []),
+            "groups": snap.get("groups", []),
+            "items": snap.get("items", []),
+            "changes": diff if changed else None,
+            "first_watch": previous is None,
+        }
+        click.echo(json.dumps(output, indent=2, default=str))
     else:
-        click.echo("\nFirst watch — snapshot saved for future comparisons.")
+        click.echo(f"Module: {mod_name} (ID: {module_id})")
+        click.echo(f"URL:    {_module_url(module_id)}")
+
+        # Show current users
+        users = snap.get("users", [])
+        total_users = len(users)
+        display_users = users[skip:] if skip else users
+        if limit:
+            display_users = display_users[:limit]
+
+        click.echo(f"\nCurrent users ({total_users} total, showing {len(display_users)}):")
+        for u in display_users:
+            email = u.get("emailAddress", u.get("userId", "?"))
+            pct = u.get("progressPercentage", 0)
+            click.echo(f"  {email} — {pct}% complete")
+
+        # Show current groups
+        groups = snap.get("groups", [])
+        click.echo(f"\nCurrent groups ({len(groups)}):")
+        for g in groups:
+            click.echo(f"  {g.get('name', '?')} ({g.get('userCount', 0)} users)")
+
+        # Show current items
+        items = snap.get("items", [])
+        click.echo(f"\nCurrent items ({len(items)}):")
+        for item in items:
+            iname = item.get("name", "?")
+            iid = item.get("id", "?")
+            click.echo(f"  {iname}")
+            click.echo(f"    URL: {_item_url(iid, iname)}")
+
+        # Show changes
+        if previous and diff:
+            if changed:
+                click.echo(f"\nChanges since last watch ({previous['timestamp']}):")
+                uc = diff["user_changes"]
+                if uc["added"]:
+                    for u in uc["added"]:
+                        click.echo(f"  + User: {u.get('emailAddress', u.get('userId', '?'))}")
+                if uc["removed"]:
+                    for u in uc["removed"]:
+                        click.echo(f"  - User: {u.get('emailAddress', u.get('userId', '?'))}")
+                gc = diff["group_changes"]
+                if gc["added"]:
+                    for g in gc["added"]:
+                        click.echo(f"  + Group: {g.get('name', '?')}")
+                if gc["removed"]:
+                    for g in gc["removed"]:
+                        click.echo(f"  - Group: {g.get('name', '?')}")
+                ic = diff["item_changes"]
+                if ic["added"]:
+                    for i in ic["added"]:
+                        click.echo(f"  + Item: {i.get('name', '?')}")
+                if ic["removed"]:
+                    for i in ic["removed"]:
+                        click.echo(f"  - Item: {i.get('name', '?')}")
+                if ic["changed"]:
+                    for i in ic["changed"]:
+                        click.echo(f"  ~ Item: {i.get('name', '?')}")
+                mc = diff.get("module_changes", {})
+                if mc:
+                    for field, vals in mc.items():
+                        click.echo(f"  ~ Module {field}: {vals['old']} -> {vals['new']}")
+            else:
+                click.echo(f"\nNo changes since last watch ({previous['timestamp']}).")
+        else:
+            click.echo("\nFirst watch — snapshot saved for future comparisons.")
 
     # Save current snapshot for next comparison
     save_watch_snap(snap)
@@ -200,7 +249,8 @@ def watch(module_id: int, limit: int, skip: int, quiet: bool):
 @cli.command()
 @click.option("--limit", "-l", type=int, default=0, help="Limit number of snapshots shown (0 = all)")
 @click.option("--skip", "-s", type=int, default=0, help="Skip first N snapshots")
-def history(limit: int, skip: int):
+@click.pass_context
+def history(ctx, limit: int, skip: int):
     """List all snapshots."""
     settings = get_settings()
     files = sorted(settings.snapshots_dir.glob("*.json"))
@@ -210,26 +260,33 @@ def history(limit: int, skip: int):
     display = files[skip:] if skip else files
     if limit:
         display = display[:limit]
-    click.echo(f"Snapshots ({len(files)} total, showing {len(display)}):\n")
-    for f in display:
-        size = f.stat().st_size
-        click.echo(f"  {f.stem}  ({size:,} bytes)")
+
+    if ctx.obj["json"]:
+        output = [{"name": f.stem, "size": f.stat().st_size} for f in display]
+        click.echo(json.dumps(output, indent=2))
+    else:
+        click.echo(f"Snapshots ({len(files)} total, showing {len(display)}):\n")
+        for f in display:
+            size = f.stat().st_size
+            click.echo(f"  {f.stem}  ({size:,} bytes)")
 
 
 @cli.command()
 @click.argument("query")
 @click.option("--limit", "-l", type=int, default=0, help="Limit number of results (0 = all)")
 @click.option("--status", type=click.Choice(["all", "outstanding", "completed", "blocked"], case_sensitive=False), default="all", help="Filter by backlog status (searches your backlog instead of snapshot)")
-def search(query: str, limit: int, status: str):
+@click.pass_context
+def search(ctx, query: str, limit: int, status: str):
     """Search learning items. Uses Qdrant if available, otherwise searches latest snapshot.
 
     With --status, searches your personal backlog filtered by completion state.
     """
+    use_json = ctx.obj["json"]
     settings = get_settings()
 
     # If status filter is set, search within backlog items
     if status != "all":
-        _search_backlog(query, status, limit)
+        _search_backlog(query, status, limit, use_json=use_json)
         return
 
     # Try Qdrant first (only if collection exists)
@@ -241,21 +298,24 @@ def search(query: str, limit: int, status: str):
             qdrant_limit = limit if limit else 20
             results = search_items(query, limit=qdrant_limit)
             if results:
-                click.echo(f"Qdrant results for '{query}':\n")
-                for r in results:
-                    score = r.get("score", 0)
-                    payload = r.get("payload", {})
-                    rid = payload.get("id", "?")
-                    rname = payload.get("name", "?")
-                    rtype = payload.get("type", "item")
-                    prefix = "📦" if rtype == "module" else "📄"
-                    click.echo(f"  {prefix} [{score:.3f}] {rname}")
-                    if payload.get("module_name"):
-                        click.echo(f"          Module: {payload['module_name']}")
-                    if rtype == "module":
-                        click.echo(f"          URL: {_module_url(rid)}")
-                    else:
-                        click.echo(f"          URL: {_item_url(rid, rname)}")
+                if use_json:
+                    click.echo(json.dumps(results, indent=2, default=str))
+                else:
+                    click.echo(f"Qdrant results for '{query}':\n")
+                    for r in results:
+                        score = r.get("score", 0)
+                        payload = r.get("payload", {})
+                        rid = payload.get("id", "?")
+                        rname = payload.get("name", "?")
+                        rtype = payload.get("type", "item")
+                        prefix = "📦" if rtype == "module" else "📄"
+                        click.echo(f"  {prefix} [{score:.3f}] {rname}")
+                        if payload.get("module_name"):
+                            click.echo(f"          Module: {payload['module_name']}")
+                        if rtype == "module":
+                            click.echo(f"          URL: {_module_url(rid)}")
+                        else:
+                            click.echo(f"          URL: {_item_url(rid, rname)}")
                 return
     except Exception:
         pass
@@ -290,10 +350,10 @@ def search(query: str, limit: int, status: str):
             if any(t in name or t in desc for t in terms):
                 results.append(("item", item.get("id"), item.get("name"), mod_name, None))
 
-    _display_search_results(results, query, limit)
+    _display_search_results(results, query, limit, use_json=use_json)
 
 
-def _search_backlog(query: str, status: str, limit: int):
+def _search_backlog(query: str, status: str, limit: int, use_json: bool = False):
     """Search within the user's backlog items, filtered by status."""
     from .client import SugarLearningClient
 
@@ -314,17 +374,33 @@ def _search_backlog(query: str, status: str, limit: int):
             if any(t in iname for t in terms):
                 results.append(("item", item.get("itemId"), item.get("itemName"), mod_name, item.get("state")))
 
-    _display_search_results(results, query, limit, status_label=status)
+    _display_search_results(results, query, limit, status_label=status, use_json=use_json)
 
 
-def _display_search_results(results: list, query: str, limit: int, status_label: str | None = None):
+def _display_search_results(results: list, query: str, limit: int, status_label: str | None = None, use_json: bool = False):
     """Render search results."""
+    display = results[:limit] if limit else results
+
+    if use_json:
+        output = [
+            {
+                "type": kind,
+                "id": rid,
+                "name": name,
+                "module": mod_name,
+                "status": state,
+                "url": _module_url(rid) if kind == "module" else _item_url(rid, name),
+            }
+            for kind, rid, name, mod_name, state in display
+        ]
+        click.echo(json.dumps(output, indent=2, default=str))
+        return
+
     if not results:
         extra = f" with status '{status_label}'" if status_label else ""
         click.echo(f"No results for '{query}'{extra}.")
         return
 
-    display = results[:limit] if limit else results
     extra = f" ({status_label})" if status_label else ""
     count_msg = f"Found {len(results)} result(s) for '{query}'{extra}"
     if limit and limit < len(results):
@@ -370,16 +446,14 @@ def mcp():
 @click.option("--limit", "-l", type=int, default=0, help="Limit number of modules shown (0 = all)")
 @click.option("--skip", "-s", type=int, default=0, help="Skip first N modules")
 @click.option("--status", type=click.Choice(["all", "outstanding", "completed", "blocked"], case_sensitive=False), default="all", help="Filter items by status")
-def backlog(limit: int, skip: int, status: str):
+@click.pass_context
+def backlog(ctx, limit: int, skip: int, status: str):
     """Show your current learning backlog."""
     from .client import SugarLearningClient
 
     client = SugarLearningClient()
     data = client.get_backlog()
-    click.echo(f"Total items: {data.get('totalItems', 0)}")
-    click.echo(f"  Completed: {data.get('totalCompletedItems', 0)}")
-    click.echo(f"  Outstanding: {data.get('totalOutstandingItems', 0)}")
-    click.echo(f"  Blocked: {data.get('totalBlockedItems', 0)}")
+    use_json = ctx.obj["json"]
 
     modules = data.get("modules", [])
 
@@ -395,12 +469,32 @@ def backlog(limit: int, skip: int, status: str):
                 fm["items"] = items
                 filtered_modules.append(fm)
         modules = filtered_modules
+
+    display = modules[skip:] if skip else modules
+    if limit:
+        display = display[:limit]
+
+    if use_json:
+        output = {
+            "totalItems": data.get("totalItems", 0),
+            "totalCompletedItems": data.get("totalCompletedItems", 0),
+            "totalOutstandingItems": data.get("totalOutstandingItems", 0),
+            "totalBlockedItems": data.get("totalBlockedItems", 0),
+            "status_filter": status,
+            "modules": display,
+        }
+        click.echo(json.dumps(output, indent=2, default=str))
+        return
+
+    click.echo(f"Total items: {data.get('totalItems', 0)}")
+    click.echo(f"  Completed: {data.get('totalCompletedItems', 0)}")
+    click.echo(f"  Outstanding: {data.get('totalOutstandingItems', 0)}")
+    click.echo(f"  Blocked: {data.get('totalBlockedItems', 0)}")
+
+    if status != "all":
         click.echo(f"\n  Showing: {status} items only")
 
-    if modules:
-        display = modules[skip:] if skip else modules
-        if limit:
-            display = display[:limit]
+    if display:
         total_items = sum(len(m.get("items", [])) for m in modules)
         click.echo(f"\nModules ({len(modules)} with matching items, {total_items} items total, showing {len(display)} modules):")
         for m in display:
