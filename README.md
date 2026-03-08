@@ -18,7 +18,32 @@ CLI tools, change tracker, and MCP server for [SugarLearning](https://my.sugarle
 
 ## Quick Start
 
-### 1. Clone and install
+### 1. Install globally (Recommended)
+
+```bash
+git clone https://github.com/jernejk/sugarlearning-mcp.git
+cd sugarlearning-mcp
+uv tool install .
+```
+
+This makes the `sl` command available system-wide — run it from any directory.
+
+To update after pulling new changes:
+
+```bash
+cd sugarlearning-mcp
+git pull
+uv tool install --force --reinstall .
+```
+
+To uninstall:
+
+```bash
+uv tool uninstall sugarlearning-tools
+```
+
+<details>
+<summary>Alternative: Run from project directory without global install</summary>
 
 ```bash
 git clone https://github.com/jernejk/sugarlearning-mcp.git
@@ -26,25 +51,38 @@ cd sugarlearning-mcp
 uv sync
 ```
 
-### 2. Configure
+Then prefix all commands with `uv run`:
 
 ```bash
-cp .env.example .env
+sl login
+sl sync
+sl search "training"
 ```
 
-Edit `.env` with your tenant details:
+</details>
 
-```env
+### 2. Configure
+
+Create your config file:
+
+```bash
+mkdir -p ~/.config/sugarlearning-tools
+cat > ~/.config/sugarlearning-tools/.env << 'EOF'
 SL_COMPANY_CODE=YourCompany
 SL_USER_ID=your-user-id
+EOF
 ```
+
+All config and data is stored in `~/.config/sugarlearning-tools/` so the CLI works from any directory.
+
+> **Tip:** You can also place a `.env` file in your current working directory — it will be used if no config exists in `~/.config/sugarlearning-tools/`.
 
 ### 3. Authenticate
 
 The easiest way is to paste a Bearer token from your browser:
 
 ```bash
-uv run sl login
+sl login
 ```
 
 This prompts you to paste an access token. To get one:
@@ -56,7 +94,7 @@ This prompts you to paste an access token. To get one:
 For **auto-renewal** (recommended), provide a refresh token:
 
 ```bash
-uv run sl login -r YOUR_REFRESH_TOKEN
+sl login -r YOUR_REFRESH_TOKEN
 ```
 
 To get your refresh token from the browser:
@@ -68,7 +106,7 @@ Refresh tokens last much longer than access tokens and will auto-renew your sess
 ### 4. First sync
 
 ```bash
-uv run sl sync
+sl sync
 ```
 
 This fetches all modules, items, and assignments, then saves a snapshot. Run it again later to detect changes.
@@ -94,13 +132,13 @@ This fetches all modules, items, and assignments, then saves a snapshot. Run it 
 Watch for assignment changes on the "Spec Reviews" module:
 
 ```bash
-uv run sl watch 6307
+sl watch 6307
 ```
 
 Search for training-related content:
 
 ```bash
-uv run sl search "training conferences"
+sl search "training conferences"
 ```
 
 ## MCP Server
@@ -194,7 +232,7 @@ docker run -p 6333:6333 qdrant/qdrant
 ### 2. Build the index
 
 ```bash
-uv run sl index
+sl index
 ```
 
 This embeds all module names, descriptions, and learning items using `all-MiniLM-L6-v2` (runs locally, no API key needed).
@@ -202,7 +240,7 @@ This embeds all module names, descriptions, and learning items using `all-MiniLM
 ### 3. Search
 
 ```bash
-uv run sl search "training conferences"
+sl search "training conferences"
 ```
 
 The MCP server's `search_learning` tool will also use Qdrant when available, falling back to text matching otherwise.
@@ -225,7 +263,7 @@ Set up a cron job or scheduled task to run `sl sync` periodically:
 
 ```bash
 # Every hour
-0 * * * * cd /path/to/sugarlearning-mcp && uv run sl sync >> /tmp/sl-sync.log 2>&1
+0 * * * * cd /path/to/sugarlearning-mcp && sl sync >> /tmp/sl-sync.log 2>&1
 ```
 
 ## Project Structure
