@@ -55,12 +55,8 @@ def _module_url(module_id) -> str:
 
 
 @click.group()
-@click.option("--json", "use_json", is_flag=True, help="Output as JSON instead of human-readable text")
-@click.pass_context
-def cli(ctx, use_json: bool):
+def cli():
     """SugarLearning data tools and tracker."""
-    ctx.ensure_object(dict)
-    ctx.obj["json"] = use_json
 
 
 @cli.command()
@@ -97,23 +93,23 @@ def login(oauth: bool, token: str | None, refresh_token: str | None, company: st
 
 
 @cli.command()
-@click.pass_context
-def sync(ctx):
+@click.option("--json", "use_json", is_flag=True, help="Output as JSON")
+def sync(use_json: bool):
     """Fetch latest data, create snapshot, and show changes."""
     from .sync import sync as do_sync, format_diff
 
     snapshot_path, diff_path = do_sync()
     if diff_path:
         diff_data = json.loads(diff_path.read_text())
-        if ctx.obj["json"]:
+        if use_json:
             click.echo(json.dumps(diff_data, indent=2, default=str))
         else:
             click.echo("\n" + format_diff(diff_data))
 
 
 @cli.command()
-@click.pass_context
-def diff(ctx):
+@click.option("--json", "use_json", is_flag=True, help="Output as JSON")
+def diff(use_json: bool):
     """Show the latest diff."""
     from .sync import format_diff
 
@@ -123,7 +119,7 @@ def diff(ctx):
         click.echo("No diffs found. Run 'sl sync' first.")
         return
     latest = json.loads(files[-1].read_text())
-    if ctx.obj["json"]:
+    if use_json:
         click.echo(json.dumps(latest, indent=2, default=str))
     else:
         click.echo(format_diff(latest))
@@ -134,8 +130,8 @@ def diff(ctx):
 @click.option("--limit", "-l", type=int, default=0, help="Limit number of users shown (0 = all)")
 @click.option("--skip", "-s", type=int, default=0, help="Skip first N users")
 @click.option("--quiet", "-q", is_flag=True, help="Only output if changes detected (useful for cron/scripts)")
-@click.pass_context
-def watch(ctx, module_id: int, limit: int, skip: int, quiet: bool):
+@click.option("--json", "use_json", is_flag=True, help="Output as JSON")
+def watch(module_id: int, limit: int, skip: int, quiet: bool, use_json: bool):
     """Watch a module for changes. Fetches live data and compares against previous watch."""
     from .sync import (
         fetch_module_snapshot,
@@ -155,8 +151,6 @@ def watch(ctx, module_id: int, limit: int, skip: int, quiet: bool):
     if previous:
         diff = compute_watch_diff(previous, snap)
         changed = has_watch_changes(diff)
-
-    use_json = ctx.obj["json"]
 
     # In quiet mode, skip all output if no changes (and not first watch)
     if quiet and previous and not changed:
@@ -249,8 +243,8 @@ def watch(ctx, module_id: int, limit: int, skip: int, quiet: bool):
 @cli.command()
 @click.option("--limit", "-l", type=int, default=0, help="Limit number of snapshots shown (0 = all)")
 @click.option("--skip", "-s", type=int, default=0, help="Skip first N snapshots")
-@click.pass_context
-def history(ctx, limit: int, skip: int):
+@click.option("--json", "use_json", is_flag=True, help="Output as JSON")
+def history(limit: int, skip: int, use_json: bool):
     """List all snapshots."""
     settings = get_settings()
     files = sorted(settings.snapshots_dir.glob("*.json"))
@@ -261,7 +255,7 @@ def history(ctx, limit: int, skip: int):
     if limit:
         display = display[:limit]
 
-    if ctx.obj["json"]:
+    if use_json:
         output = [{"name": f.stem, "size": f.stat().st_size} for f in display]
         click.echo(json.dumps(output, indent=2))
     else:
@@ -275,13 +269,12 @@ def history(ctx, limit: int, skip: int):
 @click.argument("query")
 @click.option("--limit", "-l", type=int, default=0, help="Limit number of results (0 = all)")
 @click.option("--status", type=click.Choice(["all", "outstanding", "completed", "blocked"], case_sensitive=False), default="all", help="Filter by backlog status (searches your backlog instead of snapshot)")
-@click.pass_context
-def search(ctx, query: str, limit: int, status: str):
+@click.option("--json", "use_json", is_flag=True, help="Output as JSON")
+def search(query: str, limit: int, status: str, use_json: bool):
     """Search learning items. Uses Qdrant if available, otherwise searches latest snapshot.
 
     With --status, searches your personal backlog filtered by completion state.
     """
-    use_json = ctx.obj["json"]
     settings = get_settings()
 
     # If status filter is set, search within backlog items
@@ -446,14 +439,13 @@ def mcp():
 @click.option("--limit", "-l", type=int, default=0, help="Limit number of modules shown (0 = all)")
 @click.option("--skip", "-s", type=int, default=0, help="Skip first N modules")
 @click.option("--status", type=click.Choice(["all", "outstanding", "completed", "blocked"], case_sensitive=False), default="all", help="Filter items by status")
-@click.pass_context
-def backlog(ctx, limit: int, skip: int, status: str):
+@click.option("--json", "use_json", is_flag=True, help="Output as JSON")
+def backlog(limit: int, skip: int, status: str, use_json: bool):
     """Show your current learning backlog."""
     from .client import SugarLearningClient
 
     client = SugarLearningClient()
     data = client.get_backlog()
-    use_json = ctx.obj["json"]
 
     modules = data.get("modules", [])
 
