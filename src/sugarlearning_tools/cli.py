@@ -185,9 +185,18 @@ def history(limit: int, skip: int):
 @cli.command()
 @click.argument("query")
 @click.option("--limit", "-l", type=int, default=0, help="Limit number of results (0 = all)")
-def search(query: str, limit: int):
-    """Search learning items. Uses Qdrant if available, otherwise searches latest snapshot."""
+@click.option("--status", type=click.Choice(["all", "outstanding", "completed", "blocked"], case_sensitive=False), default="all", help="Filter by backlog status (searches your backlog instead of snapshot)")
+def search(query: str, limit: int, status: str):
+    """Search learning items. Uses Qdrant if available, otherwise searches latest snapshot.
+
+    With --status, searches your personal backlog filtered by completion state.
+    """
     settings = get_settings()
+
+    # If status filter is set, search within backlog items
+    if status != "all":
+        _search_backlog(query, status, limit)
+        return
 
     # Try Qdrant first (only if collection exists)
     try:
@@ -232,7 +241,7 @@ def search(query: str, limit: int):
         name = (m.get("name") or "").lower()
         desc = (m.get("description") or "").lower()
         if any(t in name or t in desc for t in terms):
-            results.append(("module", m.get("id"), m.get("name"), None))
+            results.append(("module", m.get("id"), m.get("name"), None, None))
 
     # Search learning items
     for mid, items in snapshot.get("module_items", {}).items():
@@ -245,18 +254,53 @@ def search(query: str, limit: int):
             name = (item.get("name") or "").lower()
             desc = (item.get("description") or "").lower()
             if any(t in name or t in desc for t in terms):
-                results.append(("item", item.get("id"), item.get("name"), mod_name))
+                results.append(("item", item.get("id"), item.get("name"), mod_name, None))
 
+    _display_search_results(results, query, limit)
+
+
+def _search_backlog(query: str, status: str, limit: int):
+    """Search within the user's backlog items, filtered by status."""
+    from .client import SugarLearningClient
+
+    client = SugarLearningClient()
+    data = client.get_backlog()
+
+    status_map = {"outstanding": "Outstanding", "completed": "Completed", "blocked": "Blocked"}
+    target_state = status_map[status]
+    terms = query.lower().split()
+    results = []
+
+    for m in data.get("modules", []):
+        mod_name = m.get("name", "?")
+        for item in m.get("items", []):
+            if item.get("state") != target_state:
+                continue
+            iname = (item.get("itemName") or "").lower()
+            if any(t in iname for t in terms):
+                results.append(("item", item.get("itemId"), item.get("itemName"), mod_name, item.get("state")))
+
+    _display_search_results(results, query, limit, status_label=status)
+
+
+def _display_search_results(results: list, query: str, limit: int, status_label: str | None = None):
+    """Render search results."""
     if not results:
-        click.echo(f"No results for '{query}'.")
+        extra = f" with status '{status_label}'" if status_label else ""
+        click.echo(f"No results for '{query}'{extra}.")
         return
 
     display = results[:limit] if limit else results
+    extra = f" ({status_label})" if status_label else ""
+    count_msg = f"Found {len(results)} result(s) for '{query}'{extra}"
+    if limit and limit < len(results):
+        count_msg += f" (showing {len(display)})"
+    click.echo(count_msg + ":\n")
 
-    click.echo(f"Found {len(results)} result(s) for '{query}'" + (f" (showing {len(display)}):" if limit and limit < len(results) else ":") + "\n")
-    for kind, rid, name, mod_name in display:
+    for kind, rid, name, mod_name, state in display:
         prefix = "📦" if kind == "module" else "📄"
-        click.echo(f"  {prefix} [{rid}] {name}")
+        state_tag = f" [{state}]" if state else ""
+        click.echo(f"  {prefix} [{rid}] {name}{state_tag}")
         if kind == "module":
             click.echo(f"          URL: {_module_url(rid)}")
         else:
@@ -291,7 +335,8 @@ def mcp():
 @cli.command()
 @click.option("--limit", "-l", type=int, default=0, help="Limit number of modules shown (0 = all)")
 @click.option("--skip", "-s", type=int, default=0, help="Skip first N modules")
-def backlog(limit: int, skip: int):
+@click.option("--status", type=click.Choice(["all", "outstanding", "completed", "blocked"], case_sensitive=False), default="all", help="Filter items by status")
+def backlog(limit: int, skip: int, status: str):
     """Show your current learning backlog."""
     from .client import SugarLearningClient
 
@@ -303,17 +348,41 @@ def backlog(limit: int, skip: int):
     click.echo(f"  Blocked: {data.get('totalBlockedItems', 0)}")
 
     modules = data.get("modules", [])
+
+    # Filter items by status within each module
+    if status != "all":
+        status_map = {"outstanding": "Outstanding", "completed": "Completed", "blocked": "Blocked"}
+        target_state = status_map[status]
+        filtered_modules = []
+        for m in modules:
+            items = [i for i in m.get("items", []) if i.get("state") == target_state]
+            if items:
+                fm = dict(m)
+                fm["items"] = items
+                filtered_modules.append(fm)
+        modules = filtered_modules
+        click.echo(f"\n  Showing: {status} items only")
+
     if modules:
         display = modules[skip:] if skip else modules
         if limit:
             display = display[:limit]
-        click.echo(f"\nModules ({len(modules)} total, showing {len(display)}):")
+        total_items = sum(len(m.get("items", [])) for m in modules)
+        click.echo(f"\nModules ({len(modules)} with matching items, {total_items} items total, showing {len(display)} modules):")
         for m in display:
             name = m.get("name", "?")
             items = m.get("items", [])
             mid = m.get("id", "?")
             click.echo(f"  {name} ({len(items)} items)")
             click.echo(f"    URL: {_module_url(mid)}")
+            for item in items:
+                iname = item.get("itemName", "?")
+                iid = item.get("itemId", "?")
+                state = item.get("state", "?")
+                click.echo(f"      [{state}] {iname}")
+                click.echo(f"        URL: {_item_url(iid, iname)}")
+    else:
+        click.echo(f"\nNo {status} items found.")
 
 
 if __name__ == "__main__":
