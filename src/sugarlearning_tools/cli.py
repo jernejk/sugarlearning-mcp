@@ -144,22 +144,70 @@ def history():
 @cli.command()
 @click.argument("query")
 def search(query: str):
-    """Semantic search learning items via Qdrant."""
-    from .qdrant_index import search_items
+    """Search learning items. Uses Qdrant if available, otherwise searches latest snapshot."""
+    # Try Qdrant first (only if collection exists)
+    try:
+        from qdrant_client import QdrantClient
+        qc = QdrantClient(url=get_settings().qdrant_url, timeout=2)
+        if qc.collection_exists(get_settings().qdrant_collection):
+            from .qdrant_index import search_items
+            results = search_items(query)
+            if results:
+            click.echo(f"Qdrant results for '{query}':\n")
+            for r in results:
+                score = r.get("score", 0)
+                payload = r.get("payload", {})
+                click.echo(f"  [{score:.3f}] {payload.get('name', '?')}")
+                if payload.get("module_name"):
+                    click.echo(f"          Module: {payload['module_name']}")
+                if payload.get("description"):
+                    desc = payload["description"][:120]
+                    click.echo(f"          {desc}...")
+                return
+    except Exception:
+        pass
 
-    results = search_items(query)
-    if not results:
-        click.echo("No results found.")
+    # Fallback: text search in latest snapshot
+    settings = get_settings()
+    snapshots = sorted(settings.snapshots_dir.glob("*.json"))
+    if not snapshots:
+        click.echo("No snapshots found. Run 'sl sync' first.")
         return
-    for r in results:
-        score = r.get("score", 0)
-        payload = r.get("payload", {})
-        click.echo(f"  [{score:.3f}] {payload.get('name', '?')}")
-        if payload.get("module_name"):
-            click.echo(f"          Module: {payload['module_name']}")
-        if payload.get("description"):
-            desc = payload["description"][:120]
-            click.echo(f"          {desc}...")
+
+    snapshot = json.loads(snapshots[-1].read_text())
+    terms = query.lower().split()
+    results = []
+
+    # Search modules
+    for m in snapshot.get("modules", []):
+        name = (m.get("name") or "").lower()
+        desc = (m.get("description") or "").lower()
+        if any(t in name or t in desc for t in terms):
+            results.append(("module", m.get("id"), m.get("name"), None))
+
+    # Search learning items
+    for mid, items in snapshot.get("module_items", {}).items():
+        mod_name = mid
+        for m in snapshot.get("modules", []):
+            if str(m.get("id")) == mid:
+                mod_name = m.get("name", mid)
+                break
+        for item in items:
+            name = (item.get("name") or "").lower()
+            desc = (item.get("description") or "").lower()
+            if any(t in name or t in desc for t in terms):
+                results.append(("item", item.get("id"), item.get("name"), mod_name))
+
+    if not results:
+        click.echo(f"No results for '{query}'.")
+        return
+
+    click.echo(f"Found {len(results)} result(s) for '{query}':\n")
+    for kind, rid, name, mod_name in results:
+        prefix = "📦" if kind == "module" else "📄"
+        click.echo(f"  {prefix} [{rid}] {name}")
+        if mod_name and kind == "item":
+            click.echo(f"          Module: {mod_name}")
 
 
 @cli.command()

@@ -5,6 +5,12 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings
 
+# Config home: ~/.config/sugarlearning-tools/
+_CONFIG_HOME = Path.home() / ".config" / "sugarlearning-tools"
+
+# Look for .env in config home first, then CWD
+_ENV_FILE = _CONFIG_HOME / ".env" if (_CONFIG_HOME / ".env").exists() else ".env"
+
 
 class Settings(BaseSettings):
     base_url: str = "https://my.sugarlearning.com"
@@ -16,17 +22,17 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection: str = "sugarlearning"
 
-    model_config = {"env_prefix": "SL_", "env_file": ".env"}
+    model_config = {"env_prefix": "SL_", "env_file": str(_ENV_FILE)}
 
     @property
     def token_path(self) -> Path:
-        p = Path.home() / ".config" / "sugarlearning-tools" / "tokens.json"
+        p = _CONFIG_HOME / "tokens.json"
         p.parent.mkdir(parents=True, exist_ok=True)
         return p
 
     @property
     def data_dir(self) -> Path:
-        p = Path(__file__).resolve().parent.parent.parent / "data"
+        p = _CONFIG_HOME / "data"
         p.mkdir(parents=True, exist_ok=True)
         return p
 
