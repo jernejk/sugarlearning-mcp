@@ -65,27 +65,15 @@ uv run sl search "training"
 
 </details>
 
-### 2. Configure
+### 2. Authenticate
+
+The easiest way is to set your company code and paste a Bearer token in one step:
 
 ```bash
-mkdir -p ~/.config/sugarlearning-tools
-echo 'SL_COMPANY_CODE=YourCompany' > ~/.config/sugarlearning-tools/.env
+sl login --company YourCompany
 ```
 
-That's it! Your user ID is auto-detected from your login token. All config and data is stored in `~/.config/sugarlearning-tools/` so the CLI works from any directory.
-
-> **Tip:** You can also place a `.env` file in your current working directory — it will be used if no config exists in `~/.config/sugarlearning-tools/`.
-> To manually set your user ID, add `SL_USER_ID=your-id` to the `.env` file.
-
-### 3. Authenticate
-
-The easiest way is to paste a Bearer token from your browser:
-
-```bash
-sl login
-```
-
-This prompts you to paste an access token. To get one:
+This sets your company code and prompts you to paste an access token. Your user ID is auto-detected from the token. To get a token:
 1. Open https://my.sugarlearning.com and log in
 2. Open Chrome DevTools (F12) > Network tab
 3. Find any API request to `my.sugarlearning.com`
@@ -94,7 +82,7 @@ This prompts you to paste an access token. To get one:
 For **auto-renewal** (recommended), provide a refresh token:
 
 ```bash
-sl login -r YOUR_REFRESH_TOKEN
+sl login --company YourCompany -r YOUR_REFRESH_TOKEN
 ```
 
 To get your refresh token from the browser:
@@ -103,7 +91,9 @@ To get your refresh token from the browser:
 
 Refresh tokens last much longer than access tokens and will auto-renew your session.
 
-### 4. First sync
+> **Advanced:** You can also configure via `.env` file — see [Configuration](#configuration).
+
+### 3. First sync
 
 ```bash
 sl sync
@@ -115,9 +105,10 @@ This fetches all modules, items, and assignments, then saves a snapshot. Run it 
 
 | Command | Description |
 |---------|-------------|
-| `sl login` | Authenticate (paste Bearer token) |
+| `sl login --company CODE` | Set company code and authenticate (paste Bearer token) |
 | `sl login -r TOKEN` | Authenticate with refresh token (auto-renewal) |
 | `sl login --oauth` | OAuth PKCE flow (requires registered redirect URI) |
+| `sl --json <command>` | Output as JSON instead of human-readable text |
 | `sl sync` | Fetch data, create snapshot, show changes since last sync |
 | `sl diff` | Show the most recent diff |
 | `sl watch MODULE_ID` | Show current assignments and change history for a module |
@@ -151,6 +142,17 @@ Combine status filtering with search to find specific items in your backlog:
 ```bash
 sl search "training" --status completed     # Completed training items
 sl search "security" --status outstanding   # Outstanding security items
+```
+
+### JSON Output
+
+Add `--json` before any command for machine-readable output:
+
+```bash
+sl --json backlog --status outstanding
+sl --json search "training"
+sl --json watch 6307
+sl --json diff
 ```
 
 ### Examples
