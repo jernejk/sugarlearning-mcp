@@ -69,18 +69,55 @@ def _refresh_tokens(refresh_token: str, discovery: dict) -> dict:
     return data
 
 
-def _decode_jwt_expiry(token: str) -> float | None:
-    """Extract expiry time from a JWT without verifying signature."""
+def _decode_jwt_payload(token: str) -> dict | None:
+    """Decode a JWT payload without verifying signature."""
     try:
         parts = token.split(".")
         if len(parts) != 3:
             return None
         # Decode payload (add padding)
         payload_b64 = parts[1] + "=" * (4 - len(parts[1]) % 4)
-        payload = json.loads(base64.urlsafe_b64decode(payload_b64))
-        return payload.get("exp")
+        return json.loads(base64.urlsafe_b64decode(payload_b64))
     except Exception:
         return None
+
+
+def _decode_jwt_expiry(token: str) -> float | None:
+    """Extract expiry time from a JWT without verifying signature."""
+    payload = _decode_jwt_payload(token)
+    return payload.get("exp") if payload else None
+
+
+def _extract_user_id(token: str) -> str | None:
+    """Extract user ID from JWT email claim (email prefix before @)."""
+    payload = _decode_jwt_payload(token)
+    if not payload:
+        return None
+    email = payload.get("email", "")
+    if "@" in email:
+        return email.split("@")[0]
+    return None
+
+
+def _maybe_save_user_id(token: str) -> None:
+    """Auto-save user_id to .env if not already configured."""
+    settings = get_settings()
+    if settings.user_id:
+        return  # Already configured
+    user_id = _extract_user_id(token)
+    if not user_id:
+        return
+    # Update .env in config home
+    from pathlib import Path
+    env_path = Path.home() / ".config" / "sugarlearning-tools" / ".env"
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    existing = env_path.read_text() if env_path.exists() else ""
+    if "SL_USER_ID" not in existing:
+        with env_path.open("a") as f:
+            if existing and not existing.endswith("\n"):
+                f.write("\n")
+            f.write(f"SL_USER_ID={user_id}\n")
+        print(f"Auto-detected user ID: {user_id}")
 
 
 def login_with_refresh_token(refresh_token: str) -> dict:
@@ -91,6 +128,7 @@ def login_with_refresh_token(refresh_token: str) -> dict:
     if "refresh_token" not in tokens:
         tokens["refresh_token"] = refresh_token.strip()
     _save_tokens(tokens)
+    _maybe_save_user_id(tokens["access_token"])
     remaining = int(tokens["expires_at"] - time.time())
     print(f"Login successful via refresh token! Access token valid for {remaining // 60} minutes.")
     print("Token will auto-refresh when it expires.")
@@ -118,6 +156,7 @@ def login_with_token(bearer_token: str) -> dict:
         tokens["refresh_token"] = existing["refresh_token"]
 
     _save_tokens(tokens)
+    _maybe_save_user_id(token)
     if exp:
         remaining = int(exp - time.time())
         mins = remaining // 60
@@ -208,6 +247,7 @@ def login_oauth() -> dict:
     tokens = resp.json()
     tokens["expires_at"] = time.time() + tokens.get("expires_in", 3600)
     _save_tokens(tokens)
+    _maybe_save_user_id(tokens["access_token"])
     print("Login successful! Tokens saved.")
     return tokens
 

@@ -67,19 +67,15 @@ uv run sl search "training"
 
 ### 2. Configure
 
-Create your config file:
-
 ```bash
 mkdir -p ~/.config/sugarlearning-tools
-cat > ~/.config/sugarlearning-tools/.env << 'EOF'
-SL_COMPANY_CODE=YourCompany
-SL_USER_ID=your-user-id
-EOF
+echo 'SL_COMPANY_CODE=YourCompany' > ~/.config/sugarlearning-tools/.env
 ```
 
-All config and data is stored in `~/.config/sugarlearning-tools/` so the CLI works from any directory.
+That's it! Your user ID is auto-detected from your login token. All config and data is stored in `~/.config/sugarlearning-tools/` so the CLI works from any directory.
 
 > **Tip:** You can also place a `.env` file in your current working directory — it will be used if no config exists in `~/.config/sugarlearning-tools/`.
+> To manually set your user ID, add `SL_USER_ID=your-id` to the `.env` file.
 
 ### 3. Authenticate
 
@@ -332,7 +328,7 @@ All settings use the `SL_` prefix and can be set via environment variables or `.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SL_COMPANY_CODE` | *(required)* | Your SugarLearning company/tenant code |
-| `SL_USER_ID` | *(required)* | Your user identifier |
+| `SL_USER_ID` | *(auto-detected)* | Your user identifier (extracted from login token if not set) |
 | `SL_BASE_URL` | `https://my.sugarlearning.com` | SugarLearning API base URL |
 | `SL_IDENTITY_AUTHORITY` | `https://identity.ssw.com.au` | OAuth identity server |
 | `SL_CLIENT_ID` | `ssw-sugarlearning-client` | OAuth client ID |
