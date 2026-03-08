@@ -100,7 +100,8 @@ def build_index(snapshot: dict) -> None:
             points=points[i:i + batch_size],
         )
 
-    print(f"Indexed {len(points)} items into Qdrant collection '{collection}'")
+    import sys
+    print(f"Indexed {len(points)} items into Qdrant collection '{collection}'", file=sys.stderr)
 
 
 def search_items(query: str, limit: int = 10) -> list[dict]:
@@ -110,7 +111,8 @@ def search_items(query: str, limit: int = 10) -> list[dict]:
     encoder = _get_encoder()
 
     if not client.collection_exists(settings.qdrant_collection):
-        print("Qdrant collection not found. Run 'sl index' first.")
+        import sys
+        print("Qdrant collection not found. Run 'sl index' first.", file=sys.stderr)
         return []
 
     vector = encoder.encode(query).tolist()

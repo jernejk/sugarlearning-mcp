@@ -14,7 +14,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import secrets
+import sys
 import time
 import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -23,7 +25,7 @@ from urllib.parse import urlencode, urlparse, parse_qs
 
 import httpx
 
-from .config import get_settings
+from .config import get_settings, _CONFIG_HOME, reset_settings
 
 _SCOPES = "openid profile email offline_access ssw-sugarlearning-api"
 
@@ -37,7 +39,9 @@ def _load_tokens() -> dict | None:
 
 def _save_tokens(tokens: dict) -> None:
     settings = get_settings()
-    settings.token_path.write_text(json.dumps(tokens, indent=2))
+    path = settings.token_path
+    path.write_text(json.dumps(tokens, indent=2))
+    os.chmod(path, 0o600)
 
 
 def _is_expired(tokens: dict) -> bool:
@@ -108,8 +112,7 @@ def _maybe_save_user_id(token: str) -> None:
     if not user_id:
         return
     # Update .env in config home
-    from pathlib import Path
-    env_path = Path.home() / ".config" / "sugarlearning-tools" / ".env"
+    env_path = _CONFIG_HOME / ".env"
     env_path.parent.mkdir(parents=True, exist_ok=True)
     existing = env_path.read_text() if env_path.exists() else ""
     if "SL_USER_ID" not in existing:
@@ -117,7 +120,8 @@ def _maybe_save_user_id(token: str) -> None:
             if existing and not existing.endswith("\n"):
                 f.write("\n")
             f.write(f"SL_USER_ID={user_id}\n")
-        print(f"Auto-detected user ID: {user_id}")
+        reset_settings()
+        print(f"Auto-detected user ID: {user_id}", file=sys.stderr)
 
 
 def login_with_refresh_token(refresh_token: str) -> dict:
@@ -130,8 +134,8 @@ def login_with_refresh_token(refresh_token: str) -> dict:
     _save_tokens(tokens)
     _maybe_save_user_id(tokens["access_token"])
     remaining = int(tokens["expires_at"] - time.time())
-    print(f"Login successful via refresh token! Access token valid for {remaining // 60} minutes.")
-    print("Token will auto-refresh when it expires.")
+    print(f"Login successful via refresh token! Access token valid for {remaining // 60} minutes.", file=sys.stderr)
+    print("Token will auto-refresh when it expires.", file=sys.stderr)
     return tokens
 
 
@@ -160,9 +164,9 @@ def login_with_token(bearer_token: str) -> dict:
     if exp:
         remaining = int(exp - time.time())
         mins = remaining // 60
-        print(f"Token saved. Expires in ~{mins} minutes.")
+        print(f"Token saved. Expires in ~{mins} minutes.", file=sys.stderr)
     else:
-        print("Token saved (could not determine expiry).")
+        print("Token saved (could not determine expiry).", file=sys.stderr)
     return tokens
 
 
@@ -216,10 +220,13 @@ def login_oauth() -> dict:
         "code_challenge_method": "S256",
     })
 
-    server = HTTPServer(("localhost", 8912), CallbackHandler)
+    # Parse port from redirect_uri setting
+    redirect_parsed = urlparse(settings.redirect_uri)
+    port = redirect_parsed.port or 8912
+    server = HTTPServer(("localhost", port), CallbackHandler)
     server.timeout = 120
 
-    print("Opening browser for login...")
+    print("Opening browser for login...", file=sys.stderr)
     webbrowser.open(authorize_url)
 
     while not done.is_set():
@@ -248,7 +255,7 @@ def login_oauth() -> dict:
     tokens["expires_at"] = time.time() + tokens.get("expires_in", 3600)
     _save_tokens(tokens)
     _maybe_save_user_id(tokens["access_token"])
-    print("Login successful! Tokens saved.")
+    print("Login successful! Tokens saved.", file=sys.stderr)
     return tokens
 
 

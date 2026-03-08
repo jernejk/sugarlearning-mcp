@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
 
 import click
 
-from .config import get_settings, _CONFIG_HOME
+from .config import get_settings, reset_settings, _CONFIG_HOME
 
 
 def _save_company_code(code: str) -> None:
@@ -18,15 +17,14 @@ def _save_company_code(code: str) -> None:
     existing = env_path.read_text() if env_path.exists() else ""
 
     if "SL_COMPANY_CODE" in existing:
-        # Replace existing value
-        import re as _re
-        updated = _re.sub(r"SL_COMPANY_CODE=.*", f"SL_COMPANY_CODE={code}", existing)
+        updated = re.sub(r"SL_COMPANY_CODE=.*", f"SL_COMPANY_CODE={code}", existing)
         env_path.write_text(updated)
     else:
         with env_path.open("a") as f:
             if existing and not existing.endswith("\n"):
                 f.write("\n")
             f.write(f"SL_COMPANY_CODE={code}\n")
+    reset_settings()
     click.echo(f"Company code set: {code}")
 
 
@@ -39,7 +37,7 @@ def _slugify(name: str) -> str:
     return s
 
 
-def _item_url(item_id, name: str | None = None) -> str:
+def _item_url(item_id: int | str, name: str | None = None) -> str:
     """Build a SugarLearning item URL."""
     settings = get_settings()
     base = f"{settings.base_url}/{settings.company_code}/items/{item_id}"
@@ -48,7 +46,7 @@ def _item_url(item_id, name: str | None = None) -> str:
     return base
 
 
-def _module_url(module_id) -> str:
+def _module_url(module_id: int | str) -> str:
     """Build a SugarLearning admin module URL."""
     settings = get_settings()
     return f"{settings.base_url}/{settings.company_code}/admin/modules/{module_id}"

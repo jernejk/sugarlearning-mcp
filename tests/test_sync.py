@@ -1,6 +1,8 @@
 """Tests for snapshot diff logic."""
 
-from sugarlearning_tools.sync import compute_diff, _dict_diff, format_diff
+from unittest.mock import MagicMock
+
+from sugarlearning_tools.sync import compute_diff, _dict_diff, format_diff, fetch_snapshot
 
 
 def test_dict_diff_no_changes():
@@ -137,3 +139,36 @@ def test_format_diff_produces_output():
     assert "New Module" in output
     assert "t1" in output
     assert "t2" in output
+
+
+# --- fetch_snapshot edge cases ---
+
+def test_fetch_snapshot_skips_modules_with_no_id():
+    """Modules with id=None should be skipped without crashing."""
+    client = MagicMock()
+    client.get_modules.return_value = [
+        {"id": None, "name": "Bad Module"},
+        {"id": 1, "name": "Good Module"},
+    ]
+    client.get_module_users.return_value = [{"userId": "u1"}]
+    client.get_module_groups.return_value = []
+    client.get_module_items.return_value = []
+
+    snap = fetch_snapshot(client)
+    # Should only have module 1, not the None-id one
+    assert "1" in snap["module_users"]
+    assert "None" not in snap["module_users"]
+
+
+def test_fetch_snapshot_handles_api_errors_gracefully():
+    """API errors for individual modules should not crash the whole sync."""
+    client = MagicMock()
+    client.get_modules.return_value = [{"id": 1, "name": "Module 1"}]
+    client.get_module_users.side_effect = Exception("API error")
+    client.get_module_groups.side_effect = Exception("API error")
+    client.get_module_items.side_effect = Exception("API error")
+
+    snap = fetch_snapshot(client)
+    assert snap["module_users"]["1"] == []
+    assert snap["module_groups"]["1"] == []
+    assert snap["module_items"]["1"] == []

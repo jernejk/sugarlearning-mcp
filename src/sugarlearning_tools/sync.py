@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,7 +26,7 @@ def fetch_snapshot(client: SugarLearningClient | None = None) -> dict:
     if client is None:
         client = SugarLearningClient()
 
-    print("Fetching modules...")
+    print("Fetching modules...", file=sys.stderr)
     modules = client.get_modules()
 
     module_users: dict[str, list] = {}
@@ -33,26 +34,30 @@ def fetch_snapshot(client: SugarLearningClient | None = None) -> dict:
     module_items: dict[str, list] = {}
 
     for i, mod in enumerate(modules):
-        mid = str(mod.get("id", ""))
+        raw_id = mod.get("id")
+        if raw_id is None:
+            print(f"  [{i+1}/{len(modules)}] Skipping module with no ID", file=sys.stderr)
+            continue
+        mid = str(raw_id)
         name = mod.get("name", "?")
-        print(f"  [{i+1}/{len(modules)}] {name} (ID: {mid})")
+        print(f"  [{i+1}/{len(modules)}] {name} (ID: {mid})", file=sys.stderr)
 
         try:
             module_users[mid] = client.get_module_users(int(mid))
         except Exception as e:
-            print(f"    Warning: could not fetch users: {e}")
+            print(f"    Warning: could not fetch users: {e}", file=sys.stderr)
             module_users[mid] = []
 
         try:
             module_groups[mid] = client.get_module_groups(int(mid))
         except Exception as e:
-            print(f"    Warning: could not fetch groups: {e}")
+            print(f"    Warning: could not fetch groups: {e}", file=sys.stderr)
             module_groups[mid] = []
 
         try:
             module_items[mid] = client.get_module_items(int(mid))
         except Exception as e:
-            print(f"    Warning: could not fetch items: {e}")
+            print(f"    Warning: could not fetch items: {e}", file=sys.stderr)
             module_items[mid] = []
 
     return {
@@ -70,7 +75,7 @@ def save_snapshot(snapshot: dict) -> Path:
     ts = snapshot["timestamp"]
     path = settings.snapshots_dir / f"{ts}.json"
     path.write_text(json.dumps(snapshot, indent=2, default=str))
-    print(f"Snapshot saved: {path}")
+    print(f"Snapshot saved: {path}", file=sys.stderr)
     return path
 
 
@@ -184,16 +189,16 @@ def sync() -> tuple[Path, Path | None]:
         diff = compute_diff(old, snapshot)
         diff_path = save_diff(diff)
         if diff_path:
-            print(f"Changes detected! Diff saved: {diff_path}")
+            print(f"Changes detected! Diff saved: {diff_path}", file=sys.stderr)
         else:
-            print("No changes detected since last sync.")
+            print("No changes detected since last sync.", file=sys.stderr)
     else:
-        print("First sync - no previous snapshot to compare.")
+        print("First sync - no previous snapshot to compare.", file=sys.stderr)
 
     # Clean up per-module watch snapshots (full sync supersedes them)
     removed = clean_watch_snaps()
     if removed:
-        print(f"Cleaned up {len(removed)} watch snapshot(s).")
+        print(f"Cleaned up {len(removed)} watch snapshot(s).", file=sys.stderr)
 
     return snapshot_path, diff_path
 

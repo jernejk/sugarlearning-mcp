@@ -108,7 +108,7 @@ This fetches all modules, items, and assignments, then saves a snapshot. Run it 
 | `sl login --company CODE` | Set company code and authenticate (paste Bearer token) |
 | `sl login -r TOKEN` | Authenticate with refresh token (auto-renewal) |
 | `sl login --oauth` | OAuth PKCE flow (requires registered redirect URI) |
-| `sl --json <command>` | Output as JSON instead of human-readable text |
+| `sl <command> --json` | Output as JSON instead of human-readable text |
 | `sl sync` | Fetch data, create snapshot, show changes since last sync |
 | `sl diff` | Show the most recent diff |
 | `sl watch MODULE_ID` | Show current assignments and change history for a module |
@@ -146,13 +146,13 @@ sl search "security" --status outstanding   # Outstanding security items
 
 ### JSON Output
 
-Add `--json` before any command for machine-readable output:
+Add `--json` to any command for machine-readable output:
 
 ```bash
-sl --json backlog --status outstanding
-sl --json search "training"
-sl --json watch 6307
-sl --json diff
+sl backlog --status outstanding --json
+sl search "training" --json
+sl watch 6307 --json
+sl diff --json
 ```
 
 ### Examples

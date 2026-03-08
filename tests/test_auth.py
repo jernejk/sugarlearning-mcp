@@ -2,9 +2,17 @@
 
 import base64
 import json
+import os
+import stat
 import time
 
-from sugarlearning_tools.auth import _decode_jwt_expiry, _decode_jwt_payload, _extract_user_id, _is_expired
+from sugarlearning_tools.auth import (
+    _decode_jwt_expiry,
+    _decode_jwt_payload,
+    _extract_user_id,
+    _is_expired,
+    _save_tokens,
+)
 
 
 def _make_jwt(payload: dict) -> str:
@@ -86,3 +94,27 @@ def test_extract_user_id_no_email():
 
 def test_extract_user_id_invalid_token():
     assert _extract_user_id("not-a-jwt") is None
+
+
+# --- _save_tokens permissions ---
+
+def test_save_tokens_sets_permissions(tmp_path, monkeypatch):
+    """Token file should be readable only by owner (0600)."""
+    from sugarlearning_tools.config import Settings, reset_settings
+
+    token_path = tmp_path / "tokens.json"
+
+    # Monkeypatch get_settings to use tmp_path
+    class FakeSettings:
+        @property
+        def token_path(self):
+            token_path.parent.mkdir(parents=True, exist_ok=True)
+            return token_path
+
+    monkeypatch.setattr("sugarlearning_tools.auth.get_settings", lambda: FakeSettings())
+
+    _save_tokens({"access_token": "test", "expires_at": 9999999999})
+
+    assert token_path.exists()
+    mode = stat.S_IMODE(os.stat(token_path).st_mode)
+    assert mode == 0o600, f"Expected 0600, got {oct(mode)}"
