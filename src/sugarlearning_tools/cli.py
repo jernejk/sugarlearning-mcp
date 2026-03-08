@@ -153,16 +153,16 @@ def search(query: str):
             from .qdrant_index import search_items
             results = search_items(query)
             if results:
-            click.echo(f"Qdrant results for '{query}':\n")
-            for r in results:
-                score = r.get("score", 0)
-                payload = r.get("payload", {})
-                click.echo(f"  [{score:.3f}] {payload.get('name', '?')}")
-                if payload.get("module_name"):
-                    click.echo(f"          Module: {payload['module_name']}")
-                if payload.get("description"):
-                    desc = payload["description"][:120]
-                    click.echo(f"          {desc}...")
+                click.echo(f"Qdrant results for '{query}':\n")
+                for r in results:
+                    score = r.get("score", 0)
+                    payload = r.get("payload", {})
+                    click.echo(f"  [{score:.3f}] {payload.get('name', '?')}")
+                    if payload.get("module_name"):
+                        click.echo(f"          Module: {payload['module_name']}")
+                    if payload.get("description"):
+                        desc = payload["description"][:120]
+                        click.echo(f"          {desc}...")
                 return
     except Exception:
         pass
