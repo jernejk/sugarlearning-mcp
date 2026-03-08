@@ -190,6 +190,11 @@ def sync() -> tuple[Path, Path | None]:
     else:
         print("First sync - no previous snapshot to compare.")
 
+    # Clean up per-module watch snapshots (full sync supersedes them)
+    removed = clean_watch_snaps()
+    if removed:
+        print(f"Cleaned up {len(removed)} watch snapshot(s).")
+
     return snapshot_path, diff_path
 
 
@@ -210,6 +215,125 @@ def _dict_diff(old: dict, new: dict) -> dict:
         if old_val != new_val:
             diffs[key] = {"old": old_val, "new": new_val}
     return diffs
+
+
+def fetch_module_snapshot(module_id: int, client: SugarLearningClient | None = None) -> dict:
+    """Fetch data for a single module and return as a watch snapshot."""
+    if client is None:
+        client = SugarLearningClient()
+
+    module = client.get_module(module_id)
+
+    try:
+        users = client.get_module_users(module_id)
+    except Exception:
+        users = []
+
+    try:
+        groups = client.get_module_groups(module_id)
+    except Exception:
+        groups = []
+
+    try:
+        items = client.get_module_items(module_id)
+    except Exception:
+        items = []
+
+    return {
+        "timestamp": _timestamp(),
+        "module_id": module_id,
+        "module": module,
+        "users": users,
+        "groups": groups,
+        "items": items,
+    }
+
+
+def watch_snap_path(module_id: int) -> Path:
+    """Return the path for a per-module watch snapshot."""
+    settings = get_settings()
+    return settings.data_dir / f"snap-{module_id}.json"
+
+
+def save_watch_snap(snap: dict) -> Path:
+    """Save a per-module watch snapshot."""
+    path = watch_snap_path(snap["module_id"])
+    path.write_text(json.dumps(snap, indent=2, default=str))
+    return path
+
+
+def load_watch_snap(module_id: int) -> dict | None:
+    """Load a previous watch snapshot, or None if it doesn't exist."""
+    path = watch_snap_path(module_id)
+    if path.exists():
+        return json.loads(path.read_text())
+    return None
+
+
+def compute_watch_diff(old: dict, new: dict) -> dict:
+    """Compute differences between two per-module watch snapshots."""
+    changes: dict = {
+        "from": old.get("timestamp", "?"),
+        "to": new.get("timestamp", "?"),
+        "module_id": new.get("module_id"),
+        "module_changes": {},
+        "user_changes": {"added": [], "removed": []},
+        "group_changes": {"added": [], "removed": []},
+        "item_changes": {"added": [], "removed": [], "changed": []},
+    }
+
+    # Module property changes
+    module_diff = _dict_diff(old.get("module", {}), new.get("module", {}))
+    if module_diff:
+        changes["module_changes"] = module_diff
+
+    # User assignment changes
+    old_users = {u.get("userId") or u.get("emailAddress"): u for u in old.get("users", [])}
+    new_users = {u.get("userId") or u.get("emailAddress"): u for u in new.get("users", [])}
+    changes["user_changes"]["added"] = [new_users[k] for k in set(new_users) - set(old_users)]
+    changes["user_changes"]["removed"] = [old_users[k] for k in set(old_users) - set(new_users)]
+
+    # Group assignment changes
+    old_groups = {str(g.get("id")): g for g in old.get("groups", [])}
+    new_groups = {str(g.get("id")): g for g in new.get("groups", [])}
+    changes["group_changes"]["added"] = [new_groups[k] for k in set(new_groups) - set(old_groups)]
+    changes["group_changes"]["removed"] = [old_groups[k] for k in set(old_groups) - set(new_groups)]
+
+    # Item changes
+    old_items = {str(i.get("id")): i for i in old.get("items", [])}
+    new_items = {str(i.get("id")): i for i in new.get("items", [])}
+    changes["item_changes"]["added"] = [new_items[k] for k in set(new_items) - set(old_items)]
+    changes["item_changes"]["removed"] = [old_items[k] for k in set(old_items) - set(new_items)]
+    for iid in set(old_items) & set(new_items):
+        diffs = _dict_diff(old_items[iid], new_items[iid])
+        if diffs:
+            changes["item_changes"]["changed"].append({"id": iid, "name": new_items[iid].get("name"), "changes": diffs})
+
+    return changes
+
+
+def has_watch_changes(diff: dict) -> bool:
+    """Check if a watch diff has any meaningful changes."""
+    return bool(
+        diff.get("module_changes")
+        or diff["user_changes"]["added"]
+        or diff["user_changes"]["removed"]
+        or diff["group_changes"]["added"]
+        or diff["group_changes"]["removed"]
+        or diff["item_changes"]["added"]
+        or diff["item_changes"]["removed"]
+        or diff["item_changes"]["changed"]
+    )
+
+
+def clean_watch_snaps() -> list[Path]:
+    """Remove all per-module watch snapshots. Returns list of removed paths."""
+    settings = get_settings()
+    removed = []
+    for snap_file in settings.data_dir.glob("snap-*.json"):
+        snap_file.unlink()
+        removed.append(snap_file)
+    return removed
 
 
 def format_diff(diff: dict) -> str:

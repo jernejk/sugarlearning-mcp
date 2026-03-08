@@ -99,68 +99,82 @@ def diff():
 @click.option("--limit", "-l", type=int, default=0, help="Limit number of users shown (0 = all)")
 @click.option("--skip", "-s", type=int, default=0, help="Skip first N users")
 def watch(module_id: int, limit: int, skip: int):
-    """Show assignment changes for a specific module across all diffs."""
-    settings = get_settings()
-    mid = str(module_id)
+    """Watch a module for changes. Fetches live data and compares against previous watch."""
+    from .sync import (
+        fetch_module_snapshot,
+        load_watch_snap,
+        save_watch_snap,
+        compute_watch_diff,
+        has_watch_changes,
+    )
 
-    # Show current assignments from latest snapshot
-    snapshots = sorted(settings.snapshots_dir.glob("*.json"))
-    if snapshots:
-        latest = json.loads(snapshots[-1].read_text())
-        users = latest.get("module_users", {}).get(mid, [])
-        groups = latest.get("module_groups", {}).get(mid, [])
+    click.echo(f"Fetching module {module_id}...")
+    snap = fetch_module_snapshot(module_id)
+    mod_name = snap.get("module", {}).get("name", str(module_id))
 
-        # Find module name
-        mod_name = mid
-        for m in latest.get("modules", []):
-            if str(m.get("id")) == mid:
-                mod_name = m.get("name", mid)
-                break
+    click.echo(f"\nModule: {mod_name} (ID: {module_id})")
+    click.echo(f"URL:    {_module_url(module_id)}")
 
-        click.echo(f"Module: {mod_name} (ID: {mid})")
-        click.echo(f"URL:    {_module_url(mid)}")
+    # Show current users
+    users = snap.get("users", [])
+    total_users = len(users)
+    display_users = users[skip:] if skip else users
+    if limit:
+        display_users = display_users[:limit]
 
-        # Apply pagination to users
-        total_users = len(users)
-        display_users = users[skip:] if skip else users
-        if limit:
-            display_users = display_users[:limit]
+    click.echo(f"\nCurrent users ({total_users} total, showing {len(display_users)}):")
+    for u in display_users:
+        email = u.get("emailAddress", u.get("userId", "?"))
+        pct = u.get("progressPercentage", 0)
+        click.echo(f"  {email} — {pct}% complete")
 
-        click.echo(f"\nCurrent users ({total_users} total, showing {len(display_users)}):")
-        for u in display_users:
-            email = u.get("emailAddress", u.get("userId", "?"))
-            pct = u.get("progressPercentage", 0)
-            click.echo(f"  {email} — {pct}% complete")
+    # Show current groups
+    groups = snap.get("groups", [])
+    click.echo(f"\nCurrent groups ({len(groups)}):")
+    for g in groups:
+        click.echo(f"  {g.get('name', '?')} ({g.get('userCount', 0)} users)")
 
-        click.echo(f"\nCurrent groups ({len(groups)}):")
-        for g in groups:
-            click.echo(f"  {g.get('name', '?')} ({g.get('userCount', 0)} users)")
+    # Compare against previous watch snapshot
+    previous = load_watch_snap(module_id)
+    if previous:
+        diff = compute_watch_diff(previous, snap)
+        if has_watch_changes(diff):
+            click.echo(f"\nChanges since last watch ({previous['timestamp']}):")
+            uc = diff["user_changes"]
+            if uc["added"]:
+                for u in uc["added"]:
+                    click.echo(f"  + User: {u.get('emailAddress', u.get('userId', '?'))}")
+            if uc["removed"]:
+                for u in uc["removed"]:
+                    click.echo(f"  - User: {u.get('emailAddress', u.get('userId', '?'))}")
+            gc = diff["group_changes"]
+            if gc["added"]:
+                for g in gc["added"]:
+                    click.echo(f"  + Group: {g.get('name', '?')}")
+            if gc["removed"]:
+                for g in gc["removed"]:
+                    click.echo(f"  - Group: {g.get('name', '?')}")
+            ic = diff["item_changes"]
+            if ic["added"]:
+                for i in ic["added"]:
+                    click.echo(f"  + Item: {i.get('name', '?')}")
+            if ic["removed"]:
+                for i in ic["removed"]:
+                    click.echo(f"  - Item: {i.get('name', '?')}")
+            if ic["changed"]:
+                for i in ic["changed"]:
+                    click.echo(f"  ~ Item: {i.get('name', '?')}")
+            mc = diff.get("module_changes", {})
+            if mc:
+                for field, vals in mc.items():
+                    click.echo(f"  ~ Module {field}: {vals['old']} -> {vals['new']}")
+        else:
+            click.echo(f"\nNo changes since last watch ({previous['timestamp']}).")
+    else:
+        click.echo("\nFirst watch — snapshot saved for future comparisons.")
 
-    # Show historical changes
-    diffs = sorted(settings.diffs_dir.glob("*.json"))
-    changes_found = False
-    for diff_file in diffs:
-        d = json.loads(diff_file.read_text())
-        ua = d.get("user_assignments", {}).get(mid)
-        ga = d.get("group_assignments", {}).get(mid)
-        if ua or ga:
-            if not changes_found:
-                click.echo(f"\nAssignment history:")
-                changes_found = True
-            click.echo(f"\n  {d['to']}:")
-            if ua:
-                for u in ua.get("added", []):
-                    click.echo(f"    + User: {u.get('emailAddress', u.get('userId', '?'))}")
-                for u in ua.get("removed", []):
-                    click.echo(f"    - User: {u.get('emailAddress', u.get('userId', '?'))}")
-            if ga:
-                for g in ga.get("added", []):
-                    click.echo(f"    + Group: {g.get('name', '?')}")
-                for g in ga.get("removed", []):
-                    click.echo(f"    - Group: {g.get('name', '?')}")
-
-    if not changes_found:
-        click.echo("\nNo assignment changes recorded yet.")
+    # Save current snapshot for next comparison
+    save_watch_snap(snap)
 
 
 @cli.command()
