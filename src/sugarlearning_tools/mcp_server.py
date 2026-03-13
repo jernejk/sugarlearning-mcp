@@ -47,6 +47,17 @@ def get_module_items(module_id: int) -> list[dict]:
 
 
 @mcp.tool
+def get_item(item_id: int, user_alias: str | None = None) -> dict:
+    """Get a learning item's full details and content.
+
+    Args:
+        item_id: The SugarLearning item ID.
+        user_alias: Optional user alias. Defaults to the current user ("me").
+    """
+    return _client().get_item(item_id, user_alias=user_alias)
+
+
+@mcp.tool
 def get_backlog(user_id: str | None = None) -> dict:
     """Get the learning backlog for a user, showing all assigned modules and items with completion status.
 

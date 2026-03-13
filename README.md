@@ -118,6 +118,7 @@ This fetches all modules, items, and assignments, then saves a snapshot. Run it 
 | `sl leaderboard` | Show company leaderboard rankings |
 | `sl badges [USER]` | Show badges earned by a user |
 | `sl profile [USER]` | Show user profile with rank and stats |
+| `sl get ITEM_ID` | Get a learning item's full details and content |
 | `sl index` | Build/rebuild Qdrant vector index |
 | `sl mcp` | Start the MCP server (stdio) |
 
@@ -190,6 +191,14 @@ Search for training-related content (includes clickable URLs for each result):
 sl search "training conferences"
 ```
 
+Fetch the full body of a specific item:
+
+```bash
+sl get 8291
+sl get 8291 --json
+sl get 8291 --user jk
+```
+
 Show your outstanding backlog items with URLs:
 
 ```bash
@@ -207,6 +216,7 @@ The MCP server exposes SugarLearning data to AI agents via stdio transport. It p
 | `get_module_users` | Get users assigned to a module with progress |
 | `get_module_groups` | Get groups assigned to a module |
 | `get_module_items` | Get learning items within a module |
+| `get_item` | Get a learning item's full details and content |
 | `get_backlog` | Get a user's learning backlog |
 | `get_recent_changes` | Get recent change diffs from local tracking |
 | `search_learning` | Semantic search across learning content |

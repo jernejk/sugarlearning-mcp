@@ -52,6 +52,15 @@ def _module_url(module_id: int | str) -> str:
     return f"{settings.base_url}/{settings.company_code}/admin/modules/{module_id}"
 
 
+def _render_item_text(item: dict) -> str:
+    """Return the most useful text payload available for an item."""
+    for key in ("itemContentValue", "itemContent", "description", "notes"):
+        value = item.get(key)
+        if value:
+            return str(value)
+    return ""
+
+
 @click.group()
 def cli():
     """SugarLearning data tools and tracker."""
@@ -366,6 +375,36 @@ def _search_backlog(query: str, status: str, limit: int, use_json: bool = False)
                 results.append(("item", item.get("itemId"), item.get("itemName"), mod_name, item.get("state")))
 
     _display_search_results(results, query, limit, status_label=status, use_json=use_json)
+
+
+@cli.command()
+@click.argument("item_id", type=int)
+@click.option("--user", "user_alias", help='User alias to fetch the item for. Defaults to "me".')
+@click.option("--json", "use_json", is_flag=True, help="Output as JSON")
+def get(item_id: int, user_alias: str | None, use_json: bool):
+    """Get a learning item's full details and content."""
+    from .client import SugarLearningClient
+
+    client = SugarLearningClient()
+    item = client.get_item(item_id, user_alias=user_alias)
+    item_name = item.get("itemName") or item.get("name") or str(item_id)
+
+    if use_json:
+        output = dict(item)
+        output["url"] = _item_url(item_id, item_name)
+        click.echo(json.dumps(output, indent=2, default=str))
+        return
+
+    click.echo(f"Item:   {item_name} [{item_id}]")
+    if item.get("moduleName"):
+        click.echo(f"Module: {item['moduleName']} ({item.get('moduleId', '?')})")
+    click.echo(f"URL:    {_item_url(item_id, item_name)}")
+
+    text = _render_item_text(item)
+    if text:
+        click.echo("\n" + text)
+    else:
+        click.echo("\nNo item content was returned.")
 
 
 def _display_search_results(results: list, query: str, limit: int, status_label: str | None = None, use_json: bool = False):

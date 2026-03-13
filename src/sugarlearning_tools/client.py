@@ -81,6 +81,23 @@ class SugarLearningClient:
             f"/api/v2/admin/{self.company_code}/modules/learningItemList/{module_id}"
         )
 
+    def get_item(
+        self,
+        item_id: int,
+        user_alias: str | None = None,
+        timezone_offset_minutes: int = 0,
+        visit_source: str = "cli",
+    ) -> dict:
+        """Get a learning item's full details and content for a user."""
+        alias = user_alias or "me"
+        return self._get(
+            f"/api/v2/company/{self.company_code}/user/{alias}/item/{item_id}",
+            params={
+                "timeZoneOffsetInMinutes": timezone_offset_minutes,
+                "visitSource": visit_source,
+            },
+        )
+
     # --- Module List (non-admin) ---
 
     def get_module_list(self) -> list[dict]:
