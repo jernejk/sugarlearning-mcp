@@ -360,15 +360,19 @@ def _search_backlog(query: str, status: str, limit: int, use_json: bool = False)
     client = SugarLearningClient()
     data = client.get_backlog()
 
-    status_map = {"outstanding": "Outstanding", "completed": "Completed", "blocked": "Blocked"}
-    target_state = status_map[status]
+    status_map = {
+        "outstanding": ("Assigned", "Outstanding"),
+        "completed": ("Completed",),
+        "blocked": ("Blocked",),
+    }
+    target_states = status_map[status]
     terms = query.lower().split()
     results = []
 
     for m in data.get("modules", []):
         mod_name = m.get("name", "?")
         for item in m.get("items", []):
-            if item.get("state") != target_state:
+            if item.get("state") not in target_states:
                 continue
             iname = (item.get("itemName") or "").lower()
             if any(t in iname for t in terms):
@@ -405,6 +409,108 @@ def get(item_id: int, user_alias: str | None, use_json: bool):
         click.echo("\n" + text)
     else:
         click.echo("\nNo item content was returned.")
+
+
+@cli.command()
+@click.argument("item_id", type=int)
+@click.option("--note", "-n", help="Add a note when completing (useful for items requiring approval)")
+@click.option("--comment", "-c", "action_comment", help="Comment to include with the completion action")
+@click.option("--json", "use_json", is_flag=True, help="Output as JSON")
+def complete(item_id: int, note: str | None, action_comment: str | None, use_json: bool):
+    """Mark a learning item as complete."""
+    from .client import SugarLearningClient
+
+    client = SugarLearningClient()
+
+    # First get the item to find companyUserItemId and check if approval is needed
+    backlog = client.get_backlog()
+    target = None
+    for m in backlog.get("modules", []):
+        for item in m.get("items", []):
+            if item.get("itemId") == item_id:
+                target = item
+                break
+        if target:
+            break
+
+    if not target:
+        click.echo(f"Item {item_id} not found in your backlog.")
+        raise SystemExit(1)
+
+    if target.get("state") == "Completed":
+        click.echo(f"Item {item_id} is already completed.")
+        return
+
+    company_user_item_id = target.get("id")
+    requires_approval = target.get("itemRequiresApproval", False)
+
+    # Add note first if provided
+    if note:
+        client.save_note(item_id, note)
+
+    # Request (0) for items needing approval, Approve (1) for auto-approve items
+    action = 0 if requires_approval else 1
+    result = client.complete_item(company_user_item_id, action=action, comment=action_comment)
+
+    if use_json:
+        click.echo(json.dumps(result, indent=2, default=str))
+        return
+
+    item_name = target.get("itemName", str(item_id))
+    if requires_approval:
+        approver = target.get("approverFullName", "unknown")
+        click.echo(f"Requested approval for: {item_name} [{item_id}]")
+        click.echo(f"  Approver: {approver}")
+    else:
+        click.echo(f"Completed: {item_name} [{item_id}]")
+
+    if note:
+        click.echo(f"  Note added.")
+
+    completed_module = result.get("completedModuleName")
+    if completed_module:
+        click.echo(f"  Module completed: {completed_module}")
+
+    badge = result.get("badgeOutcome")
+    if badge and badge != "NoEffect":
+        click.echo(f"  Badge: {badge}")
+
+
+@cli.command()
+@click.argument("item_id", type=int)
+@click.argument("content")
+@click.option("--format", "note_format", type=click.Choice(["markdown", "html"], case_sensitive=False), default="markdown", help="Note format (default: markdown)")
+@click.option("--json", "use_json", is_flag=True, help="Output as JSON")
+def note(item_id: int, content: str, note_format: str, use_json: bool):
+    """Add or update a private note on a learning item."""
+    from .client import SugarLearningClient
+
+    client = SugarLearningClient()
+
+    # Find the companyUserItemId from backlog
+    backlog = client.get_backlog()
+    target = None
+    for m in backlog.get("modules", []):
+        for item in m.get("items", []):
+            if item.get("itemId") == item_id:
+                target = item
+                break
+        if target:
+            break
+
+    if not target:
+        click.echo(f"Item {item_id} not found in your backlog.")
+        raise SystemExit(1)
+
+    company_user_item_id = target.get("id")
+    client.save_note(item_id, content, company_user_item_id=company_user_item_id, note_format=note_format)
+
+    if use_json:
+        click.echo(json.dumps({"itemId": item_id, "status": "saved"}, indent=2))
+        return
+
+    item_name = target.get("itemName", str(item_id))
+    click.echo(f"Note saved for: {item_name} [{item_id}]")
 
 
 def _display_search_results(results: list, query: str, limit: int, status_label: str | None = None, use_json: bool = False):
@@ -488,11 +594,15 @@ def backlog(limit: int, skip: int, status: str, use_json: bool):
 
     # Filter items by status within each module
     if status != "all":
-        status_map = {"outstanding": "Outstanding", "completed": "Completed", "blocked": "Blocked"}
-        target_state = status_map[status]
+        status_map = {
+            "outstanding": ("Assigned", "Outstanding"),
+            "completed": ("Completed",),
+            "blocked": ("Blocked",),
+        }
+        target_states = status_map[status]
         filtered_modules = []
         for m in modules:
-            items = [i for i in m.get("items", []) if i.get("state") == target_state]
+            items = [i for i in m.get("items", []) if i.get("state") in target_states]
             if items:
                 fm = dict(m)
                 fm["items"] = items

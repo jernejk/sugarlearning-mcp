@@ -119,6 +119,8 @@ This fetches all modules, items, and assignments, then saves a snapshot. Run it 
 | `sl badges [USER]` | Show badges earned by a user |
 | `sl profile [USER]` | Show user profile with rank and stats |
 | `sl get ITEM_ID` | Get a learning item's full details and content |
+| `sl complete ITEM_ID` | Mark a learning item as complete |
+| `sl note ITEM_ID CONTENT` | Add or update a private note on a learning item |
 | `sl index` | Build/rebuild Qdrant vector index |
 | `sl mcp` | Start the MCP server (stdio) |
 
@@ -199,6 +201,20 @@ sl get 8291 --json
 sl get 8291 --user jk
 ```
 
+Complete a learning item (auto-detects if approval is needed):
+
+```bash
+sl complete 15108
+sl complete 15108 --note "Reviewed all 3 rules"
+sl complete 15108 --comment "Done" --json
+```
+
+Add a private note to an item:
+
+```bash
+sl note 15108 "Key takeaway: use back pressure for AI agents"
+```
+
 Show your outstanding backlog items with URLs:
 
 ```bash
@@ -217,6 +233,8 @@ The MCP server exposes SugarLearning data to AI agents via stdio transport. It p
 | `get_module_groups` | Get groups assigned to a module |
 | `get_module_items` | Get learning items within a module |
 | `get_item` | Get a learning item's full details and content |
+| `complete_item` | Mark a learning item as complete |
+| `save_note` | Add or update a private note on a learning item |
 | `get_backlog` | Get a user's learning backlog |
 | `get_recent_changes` | Get recent change diffs from local tracking |
 | `search_learning` | Semantic search across learning content |

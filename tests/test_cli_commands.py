@@ -69,14 +69,14 @@ FAKE_BACKLOG = {
             "name": "Induction",
             "items": [
                 {"itemId": 100, "itemName": "Read handbook", "state": "Completed"},
-                {"itemId": 101, "itemName": "Setup dev env", "state": "Outstanding"},
+                {"itemId": 101, "itemName": "Setup dev env", "state": "Assigned"},
             ],
         },
         {
             "id": 2,
             "name": "Security",
             "items": [
-                {"itemId": 200, "itemName": "Security training", "state": "Outstanding"},
+                {"itemId": 200, "itemName": "Security training", "state": "Assigned"},
                 {"itemId": 201, "itemName": "Phishing quiz", "state": "Completed"},
                 {"itemId": 202, "itemName": "Access review", "state": "Blocked"},
             ],
@@ -427,7 +427,7 @@ def test_backlog_status_filter(monkeypatch):
         # Should only have outstanding items
         for mod in data["modules"]:
             for item in mod["items"]:
-                assert item["state"] == "Outstanding"
+                assert item["state"] in ("Assigned", "Outstanding")
 
 
 def test_backlog_limit_and_skip(monkeypatch):

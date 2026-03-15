@@ -50,7 +50,16 @@ class SugarLearningClient:
         resp = httpx.post(
             url, headers=self._headers(), json=json_body, timeout=30, **kwargs
         )
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            try:
+                detail = resp.json()
+            except Exception:
+                detail = resp.text
+            raise httpx.HTTPStatusError(
+                f"{resp.status_code}: {detail}",
+                request=resp.request,
+                response=resp,
+            )
         return _normalize(resp.json())
 
     # --- Modules ---
@@ -103,6 +112,60 @@ class SugarLearningClient:
     def get_module_list(self) -> list[dict]:
         """Get module list (public/employee view)."""
         return self._get(f"/api/v2/{self.company_code}/modulelist")
+
+    # --- Item Actions ---
+
+    def complete_item(
+        self,
+        company_user_item_id: int,
+        action: int = 1,
+        comment: str | None = None,
+    ) -> dict:
+        """Complete a learning item by creating an activity.
+
+        Args:
+            company_user_item_id: The CompanyUserItem ID (from backlog).
+            action: 0 = Request (user marks done), 1 = Approve (approver approves).
+            comment: Optional comment to include with the action.
+        """
+        settings = get_settings()
+        item_url = f"{settings.base_url}/{self.company_code}/backlog"
+        body = {
+            "Action": action,
+            "Comment": comment or "",
+            "ItemUrl": item_url,
+            "ApprovalUrl": item_url,
+        }
+        return self._post(
+            f"/api/v2/activity/{self.company_code}/Create",
+            json_body=body,
+            params={"Id": company_user_item_id},
+        )
+
+    def save_note(
+        self,
+        item_id: int,
+        content: str,
+        company_user_item_id: int | None = None,
+        note_format: str = "markdown",
+    ) -> None:
+        """Save or update a private note on a learning item.
+
+        Args:
+            item_id: The learning item ID.
+            content: The note text.
+            company_user_item_id: The CompanyUserItem ID. If not provided, uses item_id.
+            note_format: 'markdown' or 'html'.
+        """
+        fmt = 1 if note_format.lower() == "html" else 0
+        body = {
+            "CompanyUserItemId": company_user_item_id or item_id,
+            "Content": content,
+            "Format": fmt,
+        }
+        url = f"{self.base_url}/api/v2/company/{self.company_code}/user/me/item/{item_id}/notes"
+        resp = httpx.post(url, headers=self._headers(), json=body, timeout=30)
+        resp.raise_for_status()
 
     # --- Backlog ---
 

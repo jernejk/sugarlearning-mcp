@@ -58,6 +58,69 @@ def get_item(item_id: int, user_alias: str | None = None) -> dict:
 
 
 @mcp.tool
+def complete_item(item_id: int, comment: str | None = None) -> dict:
+    """Mark a learning item as complete. Automatically determines whether to request approval or auto-complete.
+
+    Args:
+        item_id: The learning item ID (e.g. from search or backlog).
+        comment: Optional comment to include with the completion.
+    """
+    client = _client()
+    backlog = client.get_backlog()
+    target = None
+    for m in backlog.get("modules", []):
+        for item in m.get("items", []):
+            if item.get("itemId") == item_id:
+                target = item
+                break
+        if target:
+            break
+
+    if not target:
+        return {"error": f"Item {item_id} not found in your backlog."}
+    if target.get("state") == "Completed":
+        return {"status": "already_completed", "itemId": item_id}
+
+    company_user_item_id = target.get("id")
+    requires_approval = target.get("itemRequiresApproval", False)
+
+    # Request (0) for items needing approval, Approve (1) for auto-approve items
+    action = 0 if requires_approval else 1
+    result = client.complete_item(company_user_item_id, action=action, comment=comment)
+    result["itemName"] = target.get("itemName")
+    result["requiresApproval"] = requires_approval
+    return result
+
+
+@mcp.tool
+def save_note(item_id: int, content: str, note_format: str = "markdown") -> dict:
+    """Save or update a private note on a learning item.
+
+    Args:
+        item_id: The learning item ID.
+        content: The note text.
+        note_format: 'markdown' or 'html' (default: markdown).
+    """
+    client = _client()
+    backlog = client.get_backlog()
+    target = None
+    for m in backlog.get("modules", []):
+        for item in m.get("items", []):
+            if item.get("itemId") == item_id:
+                target = item
+                break
+        if target:
+            break
+
+    if not target:
+        return {"error": f"Item {item_id} not found in your backlog."}
+
+    company_user_item_id = target.get("id")
+    client.save_note(item_id, content, company_user_item_id=company_user_item_id, note_format=note_format)
+    return {"status": "saved", "itemId": item_id, "itemName": target.get("itemName")}
+
+
+@mcp.tool
 def get_backlog(user_id: str | None = None) -> dict:
     """Get the learning backlog for a user, showing all assigned modules and items with completion status.
 
