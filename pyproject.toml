@@ -11,7 +11,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "qdrant-client>=1.9",
     "sentence-transformers>=3.0",
-    "fastmcp>=2.0",
+    "fastmcp>=3.2",
 ]
 
 [project.scripts]
