@@ -9,6 +9,7 @@ SugarLearning is a learning management system for tracking employee training mod
 ## What it does
 
 - **MCP Server** — Exposes SugarLearning data to AI agents (Claude Code, VS Code Copilot, Codex, LM Studio) via the [Model Context Protocol](https://modelcontextprotocol.io/)
+- **One-Command Login** — Headed-browser login via Playwright captures a Bearer token automatically — no OAuth redirect URI required
 - **Change Tracking** — Takes periodic snapshots of modules, items, and assignments, then computes diffs to detect changes over time
 - **Module Monitoring** — Watch specific modules for assignment changes (who was added/removed)
 - **Semantic Search** — Optional Qdrant vector index for natural language search across all learning content
@@ -18,6 +19,7 @@ SugarLearning is a learning management system for tracking employee training mod
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip
 - A SugarLearning account with admin access
+- (Optional) [Playwright](https://playwright.dev/) for the one-command browser login
 - (Optional) [Docker](https://www.docker.com/) for Qdrant vector search
 
 ## Quick Start
@@ -67,29 +69,47 @@ uv run sl search "training"
 
 ### 2. Authenticate
 
-The easiest way is to set your company code and paste a Bearer token in one step:
+**Recommended: one-command browser login.** Install the `browser` extra once, then run `sl login` — a real Chromium window opens, you log in to SugarLearning normally, and the CLI sniffs the Bearer token from the first API request. No OAuth redirect URI registration required.
 
 ```bash
-sl login --company YourCompany
+uv pip install -e '.[browser]'   # or: uv tool install '.[browser]' for global
+playwright install chromium
+
+sl login --company YourCompany   # company code is saved to config
+sl login                         # subsequent logins
 ```
 
-This sets your company code and prompts you to paste an access token. Your user ID is auto-detected from the token. To get a token:
-1. Open https://my.sugarlearning.com and log in
-2. Open Chrome DevTools (F12) > Network tab
-3. Find any API request to `my.sugarlearning.com`
-4. Copy the `Authorization` header value
+The browser window closes automatically once a token is captured.
 
-For **auto-renewal** (recommended), provide a refresh token:
+<details>
+<summary>Alternative login flows</summary>
+
+**Manual paste** — print DevTools instructions and paste a token yourself:
 
 ```bash
-sl login --company YourCompany -r YOUR_REFRESH_TOKEN
+sl login --manual
+sl login -t "$(pbpaste)"   # after copying the Authorization header
 ```
 
-To get your refresh token from the browser:
+**Refresh token** (for auto-renewal — longer-lived than access tokens):
+
+```bash
+sl login -r YOUR_REFRESH_TOKEN
+```
+
+To grab a refresh token from the browser:
 1. Open Chrome DevTools > Application > Local Storage > `https://my.sugarlearning.com`
 2. Find the `refresh_token` key and copy its value
 
-Refresh tokens last much longer than access tokens and will auto-renew your session.
+**Full OAuth PKCE flow** (requires a registered CLI redirect URI):
+
+```bash
+sl login --oauth
+```
+
+</details>
+
+Your user ID is auto-detected from the token. Credentials are stored at `~/.config/sugarlearning/config.json`.
 
 > **Advanced:** You can also configure via `.env` file — see [Configuration](#configuration).
 
@@ -105,7 +125,10 @@ This fetches all modules, items, and assignments, then saves a snapshot. Run it 
 
 | Command | Description |
 |---------|-------------|
-| `sl login --company CODE` | Set company code and authenticate (paste Bearer token) |
+| `sl login` | Launch a headed browser and sniff the Bearer token (default, requires `[browser]` extra) |
+| `sl login --company CODE` | Set company code (combine with any login flow) |
+| `sl login --manual` | Print DevTools paste instructions |
+| `sl login -t TOKEN` | Authenticate with a Bearer token directly |
 | `sl login -r TOKEN` | Authenticate with refresh token (auto-renewal) |
 | `sl login --oauth` | OAuth PKCE flow (requires registered redirect URI) |
 | `sl <command> --json` | Output as JSON instead of human-readable text |
