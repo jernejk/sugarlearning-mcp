@@ -19,6 +19,7 @@ sl = "sugarlearning_tools.cli:cli"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+browser = ["playwright>=1.40"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

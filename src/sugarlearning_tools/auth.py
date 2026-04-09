@@ -259,6 +259,66 @@ def login_oauth() -> dict:
     return tokens
 
 
+def login_with_browser(timeout_sec: int = 300) -> dict:
+    """Open a real browser via Playwright, let the user log in normally,
+    then sniff the Authorization header from the first API request.
+
+    This sidesteps OAuth PKCE entirely — we don't need a registered CLI
+    redirect URI because we ride on the web app's own login flow.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as e:
+        raise RuntimeError(
+            "Playwright is not installed. Run:\n"
+            "  uv pip install -e '.[browser]'\n"
+            "  playwright install chromium"
+        ) from e
+
+    settings = get_settings()
+    captured: dict[str, str | None] = {"token": None}
+    api_host = urlparse(settings.base_url).netloc
+
+    def on_request(request):
+        if captured["token"]:
+            return
+        if api_host not in request.url:
+            return
+        auth = request.headers.get("authorization", "")
+        if auth.lower().startswith("bearer "):
+            token = auth[7:].strip()
+            # Sanity-check it looks like a JWT
+            if token.count(".") == 2:
+                captured["token"] = token
+
+    print("Opening browser — log in to SugarLearning normally.", file=sys.stderr)
+    print("This window will close automatically once a token is captured.", file=sys.stderr)
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=False)
+        context = browser.new_context()
+        page = context.new_page()
+        page.on("request", on_request)
+        page.goto(settings.base_url)
+
+        deadline = time.time() + timeout_sec
+        while not captured["token"] and time.time() < deadline:
+            try:
+                page.wait_for_timeout(500)
+            except Exception:
+                break  # page/browser closed
+        try:
+            browser.close()
+        except Exception:
+            pass
+
+    if not captured["token"]:
+        raise RuntimeError("Timed out waiting for login (no Bearer token seen).")
+
+    print("Token captured from browser.", file=sys.stderr)
+    return login_with_token(captured["token"])
+
+
 def get_token() -> str:
     """Get a valid access token, refreshing if needed.
 

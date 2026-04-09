@@ -6,3 +6,9 @@ __pycache__/
 .venv/
 *.egg-info/
 dist/
+
+# macOS cruft
+.DS_Store
+
+# Local CLI working directory (env, snapshots, scratch data)
+cli/

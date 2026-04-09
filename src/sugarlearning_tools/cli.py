@@ -68,16 +68,19 @@ def cli():
 
 @cli.command()
 @click.option("--oauth", is_flag=True, help="Use full OAuth PKCE flow (requires registered redirect URI)")
+@click.option("--manual", is_flag=True, help="Print manual instructions instead of launching a browser")
 @click.option("--token", "-t", help="Provide Bearer token directly (skip interactive prompt)")
 @click.option("--refresh-token", "-r", help="Provide a refresh token (from browser localStorage)")
 @click.option("--company", "-c", help="Set your company code (saves to config)")
-def login(oauth: bool, token: str | None, refresh_token: str | None, company: str | None):
+def login(oauth: bool, manual: bool, token: str | None, refresh_token: str | None, company: str | None):
     """Authenticate with SugarLearning.
 
-    Default: paste a Bearer token from browser DevTools.
-    Use --company/-c to set your company code (e.g. sl login --company SSW).
-    Use --oauth for full OAuth PKCE flow (if redirect URI is registered).
-    Use -r/--refresh-token to provide a refresh token for auto-renewal.
+    Default: launch a Playwright-controlled browser, you log in normally,
+    and the CLI sniffs the Bearer token from the first API request.
+
+    Use --manual to just print instructions for the token-paste flow.
+    Use --oauth for full OAuth PKCE flow (requires CLI redirect URI registered).
+    Use -t/--token to provide a token directly, -r/--refresh-token for a refresh token.
     """
     if company:
         _save_company_code(company)
@@ -91,12 +94,25 @@ def login(oauth: bool, token: str | None, refresh_token: str | None, company: st
     elif token:
         from .auth import login_with_token
         login_with_token(token)
+    elif manual:
+        click.echo("Manual login options:")
+        click.echo("")
+        click.echo("  Paste a Bearer token from DevTools:")
+        click.echo("    1. Open https://my.sugarlearning.com in Chrome")
+        click.echo("    2. DevTools (Cmd+Opt+I) > Network tab")
+        click.echo("    3. Click any API request, copy the 'Authorization' header value")
+        click.echo("    4. Run:  sl login -t \"$(pbpaste)\"")
+        click.echo("")
+        click.echo("  Refresh token (from browser localStorage):")
+        click.echo("    sl login -r \"<refresh_token>\"")
     else:
-        from .auth import login_with_token
-        click.echo("Paste your Bearer token from browser DevTools.")
-        click.echo("(Chrome: DevTools > Network > any SugarLearning API request > Authorization header)\n")
-        bearer = click.prompt("Bearer token", hide_input=False)
-        login_with_token(bearer)
+        from .auth import login_with_browser
+        try:
+            login_with_browser()
+        except RuntimeError as e:
+            click.echo(str(e), err=True)
+            click.echo("\nFalling back to manual instructions: run 'sl login --manual'", err=True)
+            raise click.Abort()
 
 
 @cli.command()
