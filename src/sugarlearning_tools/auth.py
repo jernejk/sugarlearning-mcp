@@ -259,12 +259,42 @@ def login_oauth() -> dict:
     return tokens
 
 
+def _launch_chromium(p):
+    """Launch Chromium, auto-installing the matching browser build on first
+    failure.
+
+    Playwright pins a specific Chromium revision per version. When Playwright
+    is upgraded (or its browser cache is cleaned) the pinned build goes
+    missing and ``launch()`` raises 'Executable doesn't exist'. Rather than
+    making the user remember to run ``playwright install``, we detect that and
+    install it ourselves, then retry once.
+    """
+    try:
+        return p.chromium.launch(headless=False)
+    except Exception as e:
+        if "Executable doesn't exist" not in str(e):
+            raise
+        print(
+            "Chromium browser missing — installing it now (one-time, ~90 MB)...",
+            file=sys.stderr,
+        )
+        import subprocess
+
+        subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            check=True,
+        )
+        return p.chromium.launch(headless=False)
+
+
 def login_with_browser(timeout_sec: int = 300) -> dict:
     """Open a real browser via Playwright, let the user log in normally,
-    then sniff the Authorization header from the first API request.
+    then capture the full token response (including refresh token) from
+    the identity server's token endpoint.
 
-    This sidesteps OAuth PKCE entirely — we don't need a registered CLI
-    redirect URI because we ride on the web app's own login flow.
+    Falls back to sniffing the Bearer header from API requests if the
+    token endpoint response isn't intercepted (e.g. silent auth via
+    cached cookies).
     """
     try:
         from playwright.sync_api import sync_playwright
@@ -276,33 +306,56 @@ def login_with_browser(timeout_sec: int = 300) -> dict:
         ) from e
 
     settings = get_settings()
-    captured: dict[str, str | None] = {"token": None}
+    identity_host = urlparse(settings.identity_authority).netloc
     api_host = urlparse(settings.base_url).netloc
+    captured_tokens: dict | None = None
+    captured_bearer: str | None = None
+    done = Event()
+
+    def on_response(response):
+        nonlocal captured_tokens
+        if captured_tokens:
+            return
+        # Watch for token endpoint responses from the identity server
+        if identity_host not in response.url or "/connect/token" not in response.url:
+            return
+        if response.status != 200:
+            return
+        try:
+            body = response.json()
+        except Exception:
+            return
+        if "access_token" in body:
+            captured_tokens = body
+            captured_tokens["expires_at"] = time.time() + body.get("expires_in", 3600)
+            done.set()
 
     def on_request(request):
-        if captured["token"]:
+        nonlocal captured_bearer
+        if captured_tokens or captured_bearer:
             return
         if api_host not in request.url:
             return
         auth = request.headers.get("authorization", "")
         if auth.lower().startswith("bearer "):
             token = auth[7:].strip()
-            # Sanity-check it looks like a JWT
             if token.count(".") == 2:
-                captured["token"] = token
+                captured_bearer = token
+                done.set()
 
     print("Opening browser — log in to SugarLearning normally.", file=sys.stderr)
     print("This window will close automatically once a token is captured.", file=sys.stderr)
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
+        browser = _launch_chromium(p)
         context = browser.new_context()
         page = context.new_page()
+        page.on("response", on_response)
         page.on("request", on_request)
         page.goto(settings.base_url)
 
         deadline = time.time() + timeout_sec
-        while not captured["token"] and time.time() < deadline:
+        while not done.is_set() and time.time() < deadline:
             try:
                 page.wait_for_timeout(500)
             except Exception:
@@ -312,11 +365,23 @@ def login_with_browser(timeout_sec: int = 300) -> dict:
         except Exception:
             pass
 
-    if not captured["token"]:
-        raise RuntimeError("Timed out waiting for login (no Bearer token seen).")
+    # Prefer full token response (has refresh_token) over Bearer-only
+    if captured_tokens:
+        _save_tokens(captured_tokens)
+        _maybe_save_user_id(captured_tokens["access_token"])
+        has_refresh = "refresh_token" in captured_tokens
+        remaining = int(captured_tokens["expires_at"] - time.time())
+        print(f"Token captured from browser (with refresh token: {has_refresh}).", file=sys.stderr)
+        print(f"Access token valid for {remaining // 60} minutes.", file=sys.stderr)
+        if has_refresh:
+            print("Token will auto-refresh when it expires.", file=sys.stderr)
+        return captured_tokens
 
-    print("Token captured from browser.", file=sys.stderr)
-    return login_with_token(captured["token"])
+    if captured_bearer:
+        print("Token captured from browser (Bearer only — no refresh token).", file=sys.stderr)
+        return login_with_token(captured_bearer)
+
+    raise RuntimeError("Timed out waiting for login (no token seen).")
 
 
 def get_token() -> str:
