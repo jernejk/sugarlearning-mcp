@@ -741,7 +741,8 @@ def badges(user_alias: str | None, use_json: bool):
 @cli.command()
 @click.argument("user_alias", required=False)
 @click.option("--json", "use_json", is_flag=True, help="Output as JSON")
-def profile(user_alias: str | None, use_json: bool):
+@click.option("--stats", is_flag=True, help="Output only bare-minimum stats as compact JSON (no badge list) — ideal for agent prefetch")
+def profile(user_alias: str | None, use_json: bool, stats: bool):
     """Show user profile with stats, rank, and badges. Defaults to current user."""
     from .client import SugarLearningClient
 
@@ -765,6 +766,23 @@ def profile(user_alias: str | None, use_json: bool):
                 break
     except Exception:
         pass
+
+    if stats:
+        lb = lb_entry or {}
+        output = {
+            "alias": alias,
+            "fullName": full_name,
+            "progress": lb.get("percentageOfPointEarned"),
+            "lastCompleted": lb.get("lastCompletedDateTime"),
+            "completed": lb.get("totalCompleted"),
+            "assigned": lb.get("totalAssigned"),
+            "pointsEarned": lb.get("totalPointsEarned"),
+            "points": lb.get("totalPoints"),
+            "badges": lb.get("totalBadges"),
+            "rank": lb.get("position"),
+        }
+        click.echo(json.dumps(output, default=str))
+        return
 
     if use_json:
         output = {
